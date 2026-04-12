@@ -1,3 +1,4 @@
+import random
 from enum import Enum
 from typing import Any, List, Dict, Optional, Callable, Literal
 
@@ -17,6 +18,11 @@ from src.dataset.mscoco_caption_ml import (
     download_mscoco_caption_ml,
     load_mscoco_caption_ml,
     MSCOCOCaptionMlIterableDataset
+)
+from src.dataset.gqa_ru import (
+    download_gqa_ru,
+    load_gqa_ru,
+    GQARUIterableDataset
 )
 
 class SupportedDatasets(Enum):
@@ -38,11 +44,53 @@ class SupportedDatasets(Enum):
         requires_download=False,
     )
 
-UNIFIED_VLM_FEATURES = Features({
-    "image":    DatasetsImage(),
-    "question": Value("string"),
-    "answer":   Value("string"),
-})
+    GQA_RU = DatasetConfig(
+        name="deepvk/GQA-ru",
+        total_samples=52_216,
+        load_raw_func=load_gqa_ru,
+        dataset_class=GQARUIterableDataset,
+        download_func=download_gqa_ru,
+        requires_download=True,
+    )
+
+class MixedTorchIterableDataset(TorchIterableDataset):
+    """
+    Easy interleaving of multiple TorchIterableDatasets with support for probabilities and stopping_strategy.
+    Works as fast as possible, without Arrow/HF overhead.
+    """
+    def __init__(
+        self,
+        datasets: List[TorchIterableDataset],
+        probabilities: Optional[List[float]] = None,
+        seed: int = 42,
+        stopping_strategy: Literal['first_exhausted', 'all_exhausted'] = 'all_exhausted',
+    ):
+        self.datasets = datasets
+        self.probabilities = probabilities
+        self.seed = seed
+        self.stopping_strategy = stopping_strategy
+        self.random = random.Random(seed)
+
+    def __iter__(self):
+        iters = [iter(ds) for ds in self.datasets]
+        probs = self.probabilities[:] if self.probabilities is not None else None
+
+        while iters:
+            if probs is None:
+                idx = self.random.randint(0, len(iters) - 1)
+            else:
+                idx = self.random.choices(range(len(iters)), weights=probs, k=1)[0]
+
+            try:
+                yield next(iters[idx])
+            except StopIteration:
+                if self.stopping_strategy == 'first_exhausted':
+                    return
+                del iters[idx]
+                if probs is not None:
+                    del probs[idx]
+                if not iters:
+                    return
 
 def load_merged_dataset(
     dataset_specs: List[Dict[str, Any]],
@@ -50,7 +98,7 @@ def load_merged_dataset(
     global_shuffle_buffer: int = 10000,
     interleave_stopping_strategy: Literal['first_exhausted', 'all_exhausted']='all_exhausted',
     interleave_balance_probabilities: bool = False
-) -> HFDataset:
+) -> MixedTorchIterableDataset:
     """
     Creates a single lazy streaming IterableDataset by mixing several datasets.
 
@@ -58,20 +106,18 @@ def load_merged_dataset(
         dataset_specs: List of dicts, one per dataset. Example:
             [
                 {
-                    "config": SupportedDatasets.LLAVA_PRETRAIN_RU.value,
+                    "config": VLSource.LLAVA_PRETRAIN_RU.value,
                     "limit": 200_000,          # or None (use full dataset)
                     "dataset_root": "data/llava_pretrain_ru",   # required for datasets with requires_download=True
                 },
                 {
-                    "config": SupportedDatasets.MSCOCO_CAPTION_ML.value,
+                    "config": VLSource.MSCOCO_CAPTION_RU.value,
+                    "limit": None,
                     "dataset_root": "data/mscoco_caption_ru",
                 },
             ]
         global_seed: Seed used for all shuffles and random operations.
         global_shuffle_buffer: Buffer size used inside each load_raw_func.
-        interleave_stopping_strategy: stopping_strategy for interleave_datasets
-        interleave_balance_probabilities: If True, and all datasets have size information (config.total_samples or limit),
-            then probabilities will be calculated in proportion to their actual size.
     Returns:
         A single streaming IterableDataset in the unified format:
         {"image": PIL.Image, "question": str, "answer": str}
@@ -79,8 +125,7 @@ def load_merged_dataset(
     if not dataset_specs:
         raise ValueError("dataset_specs cannot be empty")
 
-    wrapped_hf_datasets: List[HFDataset] = []
-    probabilities: Optional[List[float]] = None
+    custom_datasets: List[TorchIterableDataset] = []
     effective_sizes = []
 
     for spec in dataset_specs:
@@ -109,18 +154,7 @@ def load_merged_dataset(
             skip_missing_images=True,
         )
 
-        # 3. wrap Torch IterableDataset with HF IterableDataset
-        def make_generator(custom_iterable: TorchIterableDataset) -> Callable:
-            def generator():
-                yield from custom_iterable
-            return generator
-
-        hf_ds = HFDataset.from_generator(
-            make_generator(custom_ds),
-            features=UNIFIED_VLM_FEATURES,
-        )
-
-        wrapped_hf_datasets.append(hf_ds)
+        custom_datasets.append(custom_ds)
 
         if interleave_balance_probabilities:
             size = config.total_samples
@@ -129,24 +163,18 @@ def load_merged_dataset(
             if size != None:
                 effective_sizes.append(size)
 
-    if interleave_balance_probabilities and len(effective_sizes) == len(wrapped_hf_datasets):
+    if len(custom_datasets) == 1:
+        return custom_datasets[0]
+
+    probabilities = None
+    if interleave_balance_probabilities and len(effective_sizes) == len(custom_datasets):
         total = sum(effective_sizes)
         if total > 0:
             probabilities = [size / total for size in effective_sizes]
-        else:
-            probabilities = None
-    else:
-        probabilities = None
 
-    # 4. Mix all wrapped datasets with interleave_datasets
-    if len(wrapped_hf_datasets) == 1:
-        final_ds = wrapped_hf_datasets[0]
-    else:
-        final_ds = interleave_datasets(
-            wrapped_hf_datasets,
-            probabilities=probabilities,
-            seed=global_seed,
-            stopping_strategy=interleave_stopping_strategy,
-        )
-
-    return final_ds
+    return MixedTorchIterableDataset(
+        datasets=custom_datasets,
+        probabilities=probabilities,
+        seed=global_seed,
+        stopping_strategy=interleave_stopping_strategy,
+    )
