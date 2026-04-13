@@ -24,6 +24,11 @@ from src.dataset.gqa_ru import (
     load_gqa_ru,
     GQARUIterableDataset
 )
+from src.dataset.llava_instruct_ru import (
+    download_llava_instruct_ru,
+    load_llava_instruct_ru, 
+    LLaVAInstructRuIterableDataset
+)
 
 class SupportedDatasets(Enum):
     LLAVA_PRETRAIN_RU = DatasetConfig(
@@ -50,6 +55,15 @@ class SupportedDatasets(Enum):
         load_raw_func=load_gqa_ru,
         dataset_class=GQARUIterableDataset,
         download_func=download_gqa_ru,
+        requires_download=True,
+    )
+
+    LLAVA_INSTRUCT_RU = DatasetConfig(
+        name="deepvk/LLaVA-Instruct-ru",
+        total_samples=143_980,
+        load_raw_func=load_llava_instruct_ru,
+        dataset_class=LLaVAInstructRuIterableDataset,
+        download_func=download_llava_instruct_ru,
         requires_download=True,
     )
 
