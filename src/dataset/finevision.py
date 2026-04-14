@@ -32,7 +32,7 @@ def open_image(x: Any) -> Image.Image:
 def build_prompt(tokenizer, question: str) -> str:
     user_text = f"{IMAGE_TOKEN}\n{question}"
 
-    if hasattr(tokenizer, "apply_chat_template"):
+    if getattr(tokenizer, "chat_template", None):
         try:
             messages = [{"role": "user", "content": user_text}]
             return tokenizer.apply_chat_template(

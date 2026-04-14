@@ -26,6 +26,7 @@ def save_artifacts(model: GigaChatVL, output_dir: str):
     meta = {
         "image_token": IMAGE_TOKEN,
         "image_token_id": model.image_token_id,
+        "llm_name": model.llm_name,
         "llm_hidden_size": model.llm_hidden_size,
         "vision_hidden_size": model.vision_hidden_size,
         "vision_backend": model.vision_backend,

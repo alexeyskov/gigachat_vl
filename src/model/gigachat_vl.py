@@ -1,5 +1,5 @@
 import json
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -17,11 +17,16 @@ from transformers import (
     Qwen2_5_VLForConditionalGeneration,
 )
 from transformers.utils.quantization_config import QuantizationMethod
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, PeftModel, get_peft_model
 
 
 IMAGE_TOKEN = "<image>"
 IGNORE_INDEX = -100
+_MISTRAL_FIXED_REGEX = (
+    r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+|"
+    r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*|"
+    r"\p{N}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+"
+)
 
 
 def single_device_map():
@@ -62,6 +67,26 @@ def _prepare_model_for_kbit_training_no_fp32_cast(model: nn.Module) -> nn.Module
             model.gradient_checkpointing_enable()
 
     return model
+
+
+@contextmanager
+def _without_transformers_allocator_warmup():
+    try:
+        from transformers import modeling_utils
+    except Exception:
+        yield
+        return
+
+    original = getattr(modeling_utils, "caching_allocator_warmup", None)
+    if original is None:
+        yield
+        return
+
+    modeling_utils.caching_allocator_warmup = lambda *args, **kwargs: None
+    try:
+        yield
+    finally:
+        modeling_utils.caching_allocator_warmup = original
 
 
 def _get_by_path(obj: Any, path: str) -> Any:
@@ -166,6 +191,183 @@ def _prepare_single_qwen_image(processor, image: Image.Image) -> Dict[str, torch
     )
 
 
+def _token_content(value: Any) -> Any:
+    if isinstance(value, dict):
+        return value.get("content")
+    if isinstance(value, list):
+        return [_token_content(v) for v in value]
+    return value
+
+
+def _should_fix_mistral_regex(tokenizer_name: str, tokenizer_config: Dict[str, Any]) -> bool:
+    name = str(tokenizer_name).lower()
+    if any(x in name for x in ["mistral", "gigachat"]):
+        return True
+
+    config_path = Path(tokenizer_name) / "config.json"
+    if config_path.exists():
+        try:
+            model_config = json.loads(config_path.read_text())
+        except Exception:
+            model_config = {}
+
+        if model_config.get("model_type") in {
+            "mistral",
+            "mistral3",
+            "ministral",
+            "pixtral",
+            "voxtral",
+            "deepseek_v3",
+        }:
+            return True
+
+    tokenizer_class = str(tokenizer_config.get("tokenizer_class", "")).lower()
+    return "mistral" in tokenizer_class
+
+
+def _maybe_patch_mistral_regex(tokenizer) -> bool:
+    try:
+        import tokenizers
+    except Exception:
+        return False
+
+    backend = getattr(tokenizer, "backend_tokenizer", None)
+    if backend is None:
+        backend = getattr(tokenizer, "_tokenizer", None)
+    if backend is None or getattr(backend, "pre_tokenizer", None) is None:
+        return False
+
+    split_pretokenizer = tokenizers.pre_tokenizers.Split(
+        pattern=tokenizers.Regex(_MISTRAL_FIXED_REGEX),
+        behavior="isolated",
+    )
+    current_pretokenizer = backend.pre_tokenizer
+
+    if isinstance(current_pretokenizer, tokenizers.pre_tokenizers.Sequence):
+        current_pretokenizer[0] = split_pretokenizer
+    else:
+        if isinstance(current_pretokenizer, tokenizers.pre_tokenizers.Metaspace):
+            current_pretokenizer = tokenizers.pre_tokenizers.ByteLevel(
+                add_prefix_space=False,
+                use_regex=False,
+            )
+        backend.pre_tokenizer = tokenizers.pre_tokenizers.Sequence(
+            [split_pretokenizer, current_pretokenizer]
+        )
+
+    setattr(tokenizer, "fix_mistral_regex", True)
+    if hasattr(tokenizer, "init_kwargs"):
+        tokenizer.init_kwargs["fix_mistral_regex"] = True
+    return True
+
+
+def _preview_loading_keys(keys: Any, limit: int = 10) -> List[str]:
+    if keys is None:
+        return []
+    if isinstance(keys, set):
+        keys = sorted(keys)
+    elif not isinstance(keys, (list, tuple)):
+        keys = list(keys)
+    return list(keys[:limit])
+
+
+def _load_fast_tokenizer(tokenizer_name: str) -> PreTrainedTokenizerFast:
+    tokenizer_dir = Path(tokenizer_name)
+    tokenizer_file = tokenizer_dir / "tokenizer.json"
+    tokenizer_config_file = tokenizer_dir / "tokenizer_config.json"
+    special_tokens_map_file = tokenizer_dir / "special_tokens_map.json"
+
+    if tokenizer_file.exists():
+        tokenizer_config: Dict[str, Any] = {}
+        special_tokens_map: Dict[str, Any] = {}
+
+        if tokenizer_config_file.exists():
+            tokenizer_config = json.loads(tokenizer_config_file.read_text())
+        if special_tokens_map_file.exists():
+            special_tokens_map = json.loads(special_tokens_map_file.read_text())
+
+        bos_token = _token_content(
+            special_tokens_map.get("bos_token", tokenizer_config.get("bos_token", "<s>"))
+        )
+        eos_token = _token_content(
+            special_tokens_map.get("eos_token", tokenizer_config.get("eos_token", "</s>"))
+        )
+        unk_token = _token_content(
+            special_tokens_map.get("unk_token", tokenizer_config.get("unk_token"))
+        )
+        pad_token = _token_content(
+            special_tokens_map.get("pad_token", tokenizer_config.get("pad_token"))
+        )
+        sep_token = _token_content(
+            special_tokens_map.get("sep_token", tokenizer_config.get("sep_token"))
+        )
+        cls_token = _token_content(
+            special_tokens_map.get("cls_token", tokenizer_config.get("cls_token"))
+        )
+        mask_token = _token_content(
+            special_tokens_map.get("mask_token", tokenizer_config.get("mask_token"))
+        )
+        additional_special_tokens = _token_content(
+            special_tokens_map.get(
+                "additional_special_tokens",
+                tokenizer_config.get("additional_special_tokens", []),
+            )
+        )
+
+        tokenizer = PreTrainedTokenizerFast(
+            tokenizer_file=str(tokenizer_file),
+            bos_token=bos_token,
+            eos_token=eos_token,
+            unk_token=unk_token,
+            pad_token=pad_token or eos_token,
+            sep_token=sep_token,
+            cls_token=cls_token,
+            mask_token=mask_token,
+            additional_special_tokens=additional_special_tokens,
+            model_max_length=tokenizer_config.get("model_max_length"),
+            clean_up_tokenization_spaces=tokenizer_config.get(
+                "clean_up_tokenization_spaces", True
+            ),
+        )
+
+        chat_template = tokenizer_config.get("chat_template")
+        if chat_template is not None:
+            tokenizer.chat_template = chat_template
+            if hasattr(tokenizer, "init_kwargs"):
+                tokenizer.init_kwargs["chat_template"] = chat_template
+
+        tokenizer.padding_side = tokenizer_config.get("padding_side", "right")
+        tokenizer.truncation_side = tokenizer_config.get("truncation_side", "right")
+
+        if _should_fix_mistral_regex(tokenizer_name, tokenizer_config):
+            _maybe_patch_mistral_regex(tokenizer)
+    else:
+        tokenizer = PreTrainedTokenizerFast.from_pretrained(tokenizer_name)
+
+    tokenizer.padding_side = getattr(tokenizer, "padding_side", "right") or "right"
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    return tokenizer
+
+
+def _build_chat_prompt(tokenizer, text: str, include_image: bool) -> str:
+    user_text = f"{IMAGE_TOKEN}\n{text}" if include_image else text
+
+    if getattr(tokenizer, "chat_template", None):
+        try:
+            messages = [{"role": "user", "content": user_text}]
+            return tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        except Exception:
+            pass
+
+    return f"User: {user_text}\nAssistant:"
+
+
 class MLPProjector(nn.Module):
     def __init__(self, vision_dim: int, llm_dim: int):
         super().__init__()
@@ -185,14 +387,18 @@ class GigaChatVL(nn.Module):
         self,
         llm_name: str = "ai-sage/GigaChat3.1-10B-A1.8B-bf16",
         vision_name: str = "Qwen/Qwen2.5-VL-7B-Instruct",
+        tokenizer_name: Optional[str] = None,
         use_4bit_llm: bool = True,
         freeze_vision: bool = True,
         lora_r: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
+        lora_path: Optional[str] = None,
+        projector_path: Optional[str] = None,
     ):
         super().__init__()
 
+        self.llm_name = llm_name
         self.freeze_vision = freeze_vision
         self.vision_name = vision_name
         self.quantization_method = None
@@ -200,47 +406,7 @@ class GigaChatVL(nn.Module):
         self.hf_device_map = {}
 
         # LLM tokenizer
-        tokenizer_dir = Path(llm_name)
-        tokenizer_file = tokenizer_dir / "tokenizer.json"
-        tokenizer_config_file = tokenizer_dir / "tokenizer_config.json"
-        special_tokens_map_file = tokenizer_dir / "special_tokens_map.json"
-
-        if tokenizer_file.exists():
-            tokenizer_config: Dict[str, Any] = {}
-            special_tokens_map: Dict[str, Any] = {}
-
-            if tokenizer_config_file.exists():
-                tokenizer_config = json.loads(tokenizer_config_file.read_text())
-            if special_tokens_map_file.exists():
-                special_tokens_map = json.loads(special_tokens_map_file.read_text())
-
-            bos_token = special_tokens_map.get(
-                "bos_token", tokenizer_config.get("bos_token", "<s>")
-            )
-            eos_token = special_tokens_map.get(
-                "eos_token", tokenizer_config.get("eos_token", "</s>")
-            )
-
-            if isinstance(bos_token, dict):
-                bos_token = bos_token.get("content")
-            if isinstance(eos_token, dict):
-                eos_token = eos_token.get("content")
-
-            self.tokenizer = PreTrainedTokenizerFast(
-                tokenizer_file=str(tokenizer_file),
-                bos_token=bos_token,
-                eos_token=eos_token,
-                pad_token=eos_token,
-                model_max_length=tokenizer_config.get("model_max_length"),
-                clean_up_tokenization_spaces=tokenizer_config.get(
-                    "clean_up_tokenization_spaces", True
-                ),
-            )
-        else:
-            self.tokenizer = PreTrainedTokenizerFast.from_pretrained(llm_name)
-        self.tokenizer.padding_side = "right"
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.tokenizer = _load_fast_tokenizer(tokenizer_name or llm_name)
 
         if IMAGE_TOKEN not in self.tokenizer.get_vocab():
             self.tokenizer.add_special_tokens(
@@ -261,13 +427,32 @@ class GigaChatVL(nn.Module):
         llm_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
         llm_device_map = single_device_map() if llm_quant_config is not None else None
 
-        self.llm = AutoModelForCausalLM.from_pretrained(
-            llm_name,
-            dtype=llm_dtype,
-            quantization_config=llm_quant_config,
-            device_map=llm_device_map,
-            low_cpu_mem_usage=True,
-        )
+        with _without_transformers_allocator_warmup():
+            llm_load = AutoModelForCausalLM.from_pretrained(
+                llm_name,
+                dtype=llm_dtype,
+                quantization_config=llm_quant_config,
+                device_map=llm_device_map,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True,
+                output_loading_info=True,
+            )
+        if isinstance(llm_load, tuple):
+            self.llm, llm_loading_info = llm_load
+        else:
+            self.llm = llm_load
+            llm_loading_info = {}
+
+        unexpected_llm_keys = llm_loading_info.get("unexpected_keys", [])
+        missing_llm_keys = llm_loading_info.get("missing_keys", [])
+        if unexpected_llm_keys or missing_llm_keys:
+            print(
+                "Warning: base LLM was loaded with non-empty loading info. "
+                "This often means an architecture mismatch, which can severely hurt "
+                "training quality. "
+                f"unexpected={_preview_loading_keys(unexpected_llm_keys)}, "
+                f"missing={_preview_loading_keys(missing_llm_keys)}"
+            )
 
         self.llm.resize_token_embeddings(len(self.tokenizer))
         self.llm.config.use_cache = False
@@ -294,15 +479,22 @@ class GigaChatVL(nn.Module):
                 for param in self.llm.parameters():
                     param.requires_grad = False
 
-        lora_cfg = LoraConfig(
-            task_type="CAUSAL_LM",
-            r=lora_r,
-            lora_alpha=lora_alpha,
-            lora_dropout=lora_dropout,
-            bias="none",
-            target_modules="all-linear",
-        )
-        self.llm = get_peft_model(self.llm, lora_cfg)
+        if lora_path is not None:
+            self.llm = PeftModel.from_pretrained(
+                self.llm,
+                lora_path,
+                is_trainable=False,
+            )
+        else:
+            lora_cfg = LoraConfig(
+                task_type="CAUSAL_LM",
+                r=lora_r,
+                lora_alpha=lora_alpha,
+                lora_dropout=lora_dropout,
+                bias="none",
+                target_modules="all-linear",
+            )
+            self.llm = get_peft_model(self.llm, lora_cfg)
         self.llm_hidden_size = self.llm.config.hidden_size
 
         # Vision side
@@ -325,6 +517,9 @@ class GigaChatVL(nn.Module):
             device=self.llm.get_input_embeddings().weight.device,
             dtype=self.llm.get_input_embeddings().weight.dtype,
         )
+        if projector_path is not None:
+            projector_state = torch.load(projector_path, map_location="cpu")
+            self.projector.load_state_dict(projector_state)
 
     def _load_vision_backend(self, vision_name: str):
         cfg = AutoConfig.from_pretrained(vision_name, trust_remote_code=False)
@@ -939,6 +1134,82 @@ class GigaChatVL(nn.Module):
 
         return inputs_embeds, attention_mask, labels
 
+    def _build_generation_inputs(
+        self,
+        text: str,
+        image: Optional[Image.Image],
+    ):
+        include_image = image is not None
+        prompt = _build_chat_prompt(self.tokenizer, text, include_image=include_image)
+        text_batch = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            add_special_tokens=False,
+        )
+
+        input_ids = text_batch["input_ids"]
+        attention_mask = text_batch["attention_mask"]
+        llm_device = self.llm.get_input_embeddings().weight.device
+
+        if image is None:
+            return {
+                "input_ids": input_ids.to(llm_device),
+                "attention_mask": attention_mask.to(llm_device),
+                "prompt_length": int(attention_mask[0].sum().item()),
+            }
+
+        vision_batch = self.prepare_vision_inputs([image])
+        image_features_per_sample = self.encode_images(**vision_batch)
+        input_ids = input_ids.to(llm_device)
+        attention_mask = attention_mask.to(llm_device)
+
+        embed_tokens = self.llm.get_input_embeddings()
+        base_embeds = embed_tokens(input_ids)
+        img_feats = image_features_per_sample[0]
+
+        image_pos = (input_ids[0] == self.image_token_id).nonzero(as_tuple=False).flatten()
+        if image_pos.numel() != 1:
+            raise ValueError(
+                f"Prompt must contain exactly one {IMAGE_TOKEN}. Found {image_pos.numel()}."
+            )
+
+        pos = int(image_pos.item())
+        expanded_input_ids = torch.cat(
+            [
+                input_ids[0, :pos],
+                torch.full(
+                    (img_feats.size(0),),
+                    self.image_token_id,
+                    dtype=input_ids.dtype,
+                    device=input_ids.device,
+                ),
+                input_ids[0, pos + 1 :],
+            ],
+            dim=0,
+        ).unsqueeze(0)
+
+        inputs_embeds = torch.cat(
+            [
+                base_embeds[0, :pos],
+                img_feats,
+                base_embeds[0, pos + 1 :],
+            ],
+            dim=0,
+        ).unsqueeze(0)
+
+        attention_mask = torch.ones(
+            expanded_input_ids.shape,
+            dtype=attention_mask.dtype,
+            device=expanded_input_ids.device,
+        )
+
+        return {
+            "input_ids": expanded_input_ids,
+            "inputs_embeds": inputs_embeds,
+            "attention_mask": attention_mask,
+            "prompt_length": expanded_input_ids.size(1),
+        }
+
     def unfreeze_last_vision_blocks(self, n_blocks: int = 4):
         if self.vision_tower is None:
             raise RuntimeError(
@@ -1003,3 +1274,115 @@ class GigaChatVL(nn.Module):
             labels=labels,
             use_cache=False,
         )
+
+
+class GigaChatVLForInference(GigaChatVL):
+    def __init__(
+        self,
+        checkpoint_dir: str,
+        llm_name: Optional[str] = None,
+        vision_name: Optional[str] = None,
+        use_4bit_llm: bool = True,
+        lora_r: int = 16,
+        lora_alpha: int = 32,
+        lora_dropout: float = 0.05,
+    ):
+        checkpoint_path = Path(checkpoint_dir)
+        meta_path = checkpoint_path / "vlm_meta.json"
+        lora_dir = checkpoint_path / "llm_lora"
+        projector_path = checkpoint_path / "projector.pt"
+        tokenizer_dir = checkpoint_path / "tokenizer"
+        vision_processor_dir = checkpoint_path / "vision_processor"
+
+        if not meta_path.exists():
+            raise FileNotFoundError(f"Missing checkpoint metadata: {meta_path}")
+        if not lora_dir.exists():
+            raise FileNotFoundError(f"Missing LoRA adapter directory: {lora_dir}")
+        if not projector_path.exists():
+            raise FileNotFoundError(f"Missing projector weights: {projector_path}")
+
+        meta: Dict[str, Any] = {}
+        adapter_config: Dict[str, Any] = {}
+        meta = json.loads(meta_path.read_text())
+        adapter_config_path = lora_dir / "adapter_config.json"
+        if adapter_config_path.exists():
+            adapter_config = json.loads(adapter_config_path.read_text())
+
+        resolved_llm_name = llm_name or meta.get("llm_name") or adapter_config.get("base_model_name_or_path")
+        resolved_vision_name = vision_name or meta.get("vision_name")
+
+        if resolved_llm_name is None:
+            raise RuntimeError(
+                "Could not infer base LLM path from checkpoint metadata or adapter config. "
+                "Pass llm_name explicitly."
+            )
+        if resolved_vision_name is None:
+            raise RuntimeError(
+                "Could not infer vision model path from checkpoint metadata. "
+                "Pass vision_name explicitly."
+            )
+
+        super().__init__(
+            llm_name=resolved_llm_name,
+            vision_name=resolved_vision_name,
+            tokenizer_name=str(tokenizer_dir) if tokenizer_dir.exists() else resolved_llm_name,
+            use_4bit_llm=use_4bit_llm,
+            freeze_vision=True,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            lora_path=str(lora_dir),
+            projector_path=str(projector_path) if projector_path.exists() else None,
+        )
+
+        if vision_processor_dir.exists():
+            self.vision_processor = AutoProcessor.from_pretrained(str(vision_processor_dir))
+
+        self.eval()
+
+    @torch.inference_mode()
+    def inference(
+        self,
+        text: str,
+        image: Optional[Image.Image] = None,
+        max_new_tokens: int = 128,
+        do_sample: bool = False,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+    ) -> str:
+        if image is not None and not isinstance(image, Image.Image):
+            raise TypeError(f"image must be PIL.Image.Image or None, got {type(image)}")
+
+        if image is not None:
+            image = image.convert("RGB")
+
+        prepared = self._build_generation_inputs(text=text, image=image)
+
+        device = self.llm.get_input_embeddings().weight.device
+        attention_mask = prepared["attention_mask"].to(device)
+        generation_kwargs = {
+            "attention_mask": attention_mask,
+            "max_new_tokens": max_new_tokens,
+            "do_sample": do_sample,
+            "use_cache": True,
+            "pad_token_id": self.tokenizer.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+        }
+        if do_sample:
+            generation_kwargs["temperature"] = temperature
+            generation_kwargs["top_p"] = top_p
+
+        if "inputs_embeds" in prepared:
+            outputs = self.llm.generate(
+                input_ids=prepared["input_ids"].to(device),
+                inputs_embeds=prepared["inputs_embeds"].to(device),
+                **generation_kwargs,
+            )
+        else:
+            outputs = self.llm.generate(
+                input_ids=prepared["input_ids"].to(device),
+                **generation_kwargs,
+            )
+
+        generated_ids = outputs[0, prepared["prompt_length"] :]
+        return self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
