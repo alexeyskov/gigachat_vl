@@ -28,6 +28,8 @@ def save_artifacts(model: GigaChatVL, output_dir: str):
         "image_token_id": model.image_token_id,
         "llm_name": model.llm_name,
         "llm_hidden_size": model.llm_hidden_size,
+        "projector_type": getattr(model, "projector_type", None),
+        "projector_num_queries": getattr(model.projector, "num_queries", None),
         "vision_hidden_size": model.vision_hidden_size,
         "vision_backend": model.vision_backend,
         "vision_name": model.vision_name,

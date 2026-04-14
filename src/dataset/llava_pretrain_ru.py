@@ -1,7 +1,7 @@
 import os
 import zipfile
 from pathlib import Path
-from typing import Optional, Iterator, Dict, Any
+from typing import Optional, Iterator, Dict, Any, Union
 
 from datasets import load_dataset
 from datasets import IterableDataset as HFDataset
@@ -78,7 +78,7 @@ def download_llava_pretrain_ru(
 
 
 def load_llava_pretrain_ru(
-    config: DatasetConfig,
+    config: Optional[DatasetConfig] = None,
     limit: Optional[int] = None,
     shuffle_buffer: int = 10000,
     seed: int = 42,
@@ -86,7 +86,8 @@ def load_llava_pretrain_ru(
 ) -> HFDataset:
     missing_files_error_msg = (
         "For LLAVA_PRETRAIN_RU dataset_root is required (the folder containing "
-        "maya_russian_blip_laion_cc_sbu_558k.json + images folder)"
+        "maya_russian_blip_laion_cc_sbu_558k.json plus either the original shard "
+        "folders like 00000/, 00001/, ... or an images/ folder)"
     )
 
     if dataset_root is None:
@@ -94,9 +95,8 @@ def load_llava_pretrain_ru(
 
     russian_json_filename = "maya_russian_blip_laion_cc_sbu_558k.json"
     json_path = os.path.join(dataset_root, russian_json_filename)
-    images_path = os.path.join(dataset_root, "images")
 
-    if not os.path.exists(json_path) or not os.path.exists(images_path):
+    if not os.path.exists(json_path):
         raise ValueError(missing_files_error_msg)
 
     ds = load_dataset(
@@ -120,18 +120,40 @@ class LLaVAPretrainRuIterableDataset(TorchIterableDataset):
     """
     def __init__(
         self,
-        raw_hf_iterable,
+        raw_hf_iterable: Union[HFDataset, str, os.PathLike],
         dataset_root: str,
         seed: int = 42,
         skip_missing_images: bool = True,
     ):
-        self.raw_hf_iterable = raw_hf_iterable
-        self.dataset_root = dataset_root
         self.seed = seed
+        self.raw_hf_iterable = self._resolve_raw_iterable(raw_hf_iterable)
+        self.dataset_root = dataset_root
         self.skip_missing_images = skip_missing_images
+
+    def _resolve_raw_iterable(
+        self,
+        raw_hf_iterable: Union[HFDataset, str, os.PathLike],
+    ) -> HFDataset:
+        if isinstance(raw_hf_iterable, (str, os.PathLike)):
+            json_path = os.fspath(raw_hf_iterable)
+            if not os.path.exists(json_path):
+                raise FileNotFoundError(f"LLaVA pretrain json file not found: {json_path}")
+
+            ds = load_dataset(
+                "json",
+                data_files=json_path,
+                streaming=True,
+                split="train",
+            )
+            return ds.shuffle(seed=self.seed, buffer_size=10_000)
+
+        return raw_hf_iterable
 
     def __iter__(self) -> Iterator[Dict[str, Any]]:
         for row in self.raw_hf_iterable:
+            if not isinstance(row, dict):
+                continue
+
             conversations = row.get("conversations", [])
             if len(conversations) < 2:
                 continue
@@ -140,9 +162,9 @@ class LLaVAPretrainRuIterableDataset(TorchIterableDataset):
             if not image_rel_path:
                 continue
 
-            image_path = os.path.join(self.dataset_root, "images", image_rel_path)
+            image_path = self._resolve_image_path(image_rel_path)
 
-            if self.skip_missing_images and not os.path.exists(image_path):
+            if image_path is None:
                 continue
 
             try:
@@ -161,3 +183,18 @@ class LLaVAPretrainRuIterableDataset(TorchIterableDataset):
                 "question": question,
                 "answer": answer,
             }
+
+    def _resolve_image_path(self, image_rel_path: str) -> Optional[str]:
+        candidates = [
+            os.path.join(self.dataset_root, "images", image_rel_path),
+            os.path.join(self.dataset_root, image_rel_path),
+        ]
+
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                return candidate
+
+        if self.skip_missing_images:
+            return None
+
+        return candidates[0]

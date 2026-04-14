@@ -271,6 +271,33 @@ def _preview_loading_keys(keys: Any, limit: int = 10) -> List[str]:
     return list(keys[:limit])
 
 
+def _looks_like_benign_mtp_unexpected_keys(
+    unexpected_keys: Any,
+    model_config: Any,
+) -> bool:
+    if not unexpected_keys:
+        return False
+
+    keys = list(unexpected_keys)
+    num_hidden_layers = getattr(model_config, "num_hidden_layers", None)
+    num_nextn_predict_layers = getattr(model_config, "num_nextn_predict_layers", 0)
+    if num_hidden_layers is None or not num_nextn_predict_layers:
+        return False
+
+    mtp_prefix = f"model.layers.{num_hidden_layers}."
+    if not all(k.startswith(mtp_prefix) for k in keys):
+        return False
+
+    mtp_markers = (
+        ".shared_head.",
+        ".eh_proj.",
+        ".enorm.",
+        ".hnorm.",
+        ".embed_tokens.",
+    )
+    return any(marker in k for k in keys for marker in mtp_markers)
+
+
 def _load_fast_tokenizer(tokenizer_name: str) -> PreTrainedTokenizerFast:
     tokenizer_dir = Path(tokenizer_name)
     tokenizer_file = tokenizer_dir / "tokenizer.json"
@@ -368,6 +395,11 @@ def _build_chat_prompt(tokenizer, text: str, include_image: bool) -> str:
     return f"User: {user_text}\nAssistant:"
 
 
+def _module_device_dtype(module: nn.Module) -> tuple[torch.device, torch.dtype]:
+    param = next(module.parameters())
+    return param.device, param.dtype
+
+
 class MLPProjector(nn.Module):
     def __init__(self, vision_dim: int, llm_dim: int):
         super().__init__()
@@ -380,6 +412,89 @@ class MLPProjector(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
+
+
+class QFormerBlock(nn.Module):
+    def __init__(self, hidden_size: int, num_heads: int, mlp_ratio: int = 4):
+        super().__init__()
+        mlp_hidden = hidden_size * mlp_ratio
+
+        self.self_attn_norm = nn.LayerNorm(hidden_size)
+        self.self_attn = nn.MultiheadAttention(
+            hidden_size,
+            num_heads=num_heads,
+            batch_first=True,
+        )
+
+        self.cross_attn_norm = nn.LayerNorm(hidden_size)
+        self.cross_attn = nn.MultiheadAttention(
+            hidden_size,
+            num_heads=num_heads,
+            batch_first=True,
+        )
+        self.cross_kv_norm = nn.LayerNorm(hidden_size)
+
+        self.mlp_norm = nn.LayerNorm(hidden_size)
+        self.mlp = nn.Sequential(
+            nn.Linear(hidden_size, mlp_hidden),
+            nn.GELU(),
+            nn.Linear(mlp_hidden, hidden_size),
+        )
+
+    def forward(
+        self,
+        queries: torch.Tensor,
+        encoder_hidden_states: torch.Tensor,
+    ) -> torch.Tensor:
+        x = self.self_attn_norm(queries)
+        self_attn_out, _ = self.self_attn(x, x, x, need_weights=False)
+        queries = queries + self_attn_out
+
+        q = self.cross_attn_norm(queries)
+        kv = self.cross_kv_norm(encoder_hidden_states)
+        cross_attn_out, _ = self.cross_attn(q, kv, kv, need_weights=False)
+        queries = queries + cross_attn_out
+
+        queries = queries + self.mlp(self.mlp_norm(queries))
+        return queries
+
+
+class QFormerProjector(nn.Module):
+    def __init__(
+        self,
+        vision_dim: int,
+        llm_dim: int,
+        num_queries: int = 32,
+        num_heads: int = 8,
+        mlp_ratio: int = 4,
+    ):
+        super().__init__()
+        self.num_queries = num_queries
+        self.hidden_size = llm_dim
+
+        self.vision_proj = nn.Linear(vision_dim, llm_dim)
+        self.query_tokens = nn.Parameter(torch.randn(1, num_queries, llm_dim) * 0.02)
+        self.block = QFormerBlock(
+            hidden_size=llm_dim,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+        )
+        self.output_norm = nn.LayerNorm(llm_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        squeeze = False
+        if x.dim() == 2:
+            x = x.unsqueeze(0)
+            squeeze = True
+
+        image_features = self.vision_proj(x)
+        queries = self.query_tokens.expand(image_features.size(0), -1, -1)
+        queries = self.block(queries, image_features)
+        queries = self.output_norm(queries)
+
+        if squeeze:
+            return queries[0]
+        return queries
 
 
 class GigaChatVL(nn.Module):
@@ -445,7 +560,20 @@ class GigaChatVL(nn.Module):
 
         unexpected_llm_keys = llm_loading_info.get("unexpected_keys", [])
         missing_llm_keys = llm_loading_info.get("missing_keys", [])
-        if unexpected_llm_keys or missing_llm_keys:
+        benign_mtp_extras = (
+            not missing_llm_keys
+            and _looks_like_benign_mtp_unexpected_keys(unexpected_llm_keys, self.llm.config)
+        )
+        if benign_mtp_extras:
+            print(
+                "Note: base LLM checkpoint contains an extra MTP block "
+                f"({len(list(unexpected_llm_keys))} tensors under "
+                f"`model.layers.{self.llm.config.num_hidden_layers}.*`). "
+                "Transformers `DeepseekV3ForCausalLM` does not load this auxiliary "
+                "MTP block for standard causal LM training/inference, so these "
+                "unexpected keys are expected and can be ignored."
+            )
+        elif unexpected_llm_keys or missing_llm_keys:
             print(
                 "Warning: base LLM was loaded with non-empty loading info. "
                 "This often means an architecture mismatch, which can severely hurt "
@@ -505,11 +633,12 @@ class GigaChatVL(nn.Module):
         self.vision_projector = None
         self.vision_hidden_size = None
         self.gemma_image_placeholder = None
+        self.projector_type = "qformer"
 
         self._load_vision_backend(vision_name)
 
         # Connector
-        self.projector = MLPProjector(
+        self.projector = QFormerProjector(
             vision_dim=self.vision_hidden_size,
             llm_dim=self.llm_hidden_size,
         )
@@ -519,7 +648,14 @@ class GigaChatVL(nn.Module):
         )
         if projector_path is not None:
             projector_state = torch.load(projector_path, map_location="cpu")
-            self.projector.load_state_dict(projector_state)
+            try:
+                self.projector.load_state_dict(projector_state)
+            except RuntimeError as e:
+                raise RuntimeError(
+                    "Failed to load projector weights into QFormerProjector. "
+                    "This usually means the checkpoint was trained with a different "
+                    "projector architecture, for example the older MLPProjector."
+                ) from e
 
     def _load_vision_backend(self, vision_name: str):
         cfg = AutoConfig.from_pretrained(vision_name, trust_remote_code=False)
@@ -822,11 +958,12 @@ class GigaChatVL(nn.Module):
         chunks = list(torch.split(feats, token_counts, dim=0))
 
         out = []
+        projector_device, projector_dtype = _module_device_dtype(self.projector)
         for x in chunks:
             y = self.projector(
                 x.to(
-                    device=self.projector.net[0].weight.device,
-                    dtype=self.projector.net[0].weight.dtype,
+                    device=projector_device,
+                    dtype=projector_dtype,
                 )
             )
             y = y.to(
@@ -907,11 +1044,12 @@ class GigaChatVL(nn.Module):
             raise RuntimeError(f"Unexpected qwen3-family feature shape: {tuple(feats.shape)}")
 
         out = []
+        projector_device, projector_dtype = _module_device_dtype(self.projector)
         for x in chunks:
             y = self.projector(
                 x.to(
-                    device=self.projector.net[0].weight.device,
-                    dtype=self.projector.net[0].weight.dtype,
+                    device=projector_device,
+                    dtype=projector_dtype,
                 )
             )
             y = y.to(
@@ -964,6 +1102,7 @@ class GigaChatVL(nn.Module):
         token_counts = [int(x) for x in token_counts]
 
         out = []
+        projector_device, projector_dtype = _module_device_dtype(self.projector)
         for i, n in enumerate(token_counts):
             if n <= 0:
                 raise RuntimeError(
@@ -973,8 +1112,8 @@ class GigaChatVL(nn.Module):
             x = image_hidden_states[i, :n]
             y = self.projector(
                 x.to(
-                    device=self.projector.net[0].weight.device,
-                    dtype=self.projector.net[0].weight.dtype,
+                    device=projector_device,
+                    dtype=projector_dtype,
                 )
             )
             y = y.to(

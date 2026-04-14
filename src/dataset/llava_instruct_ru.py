@@ -1,7 +1,7 @@
 import os
 import zipfile
 from pathlib import Path
-from typing import Optional, Iterator, Dict, Any
+from typing import Optional, Iterator, Dict, Any, Union
 
 from datasets import load_dataset
 from datasets import IterableDataset as HFDataset
@@ -83,7 +83,7 @@ def download_llava_instruct_ru(
 
 
 def load_llava_instruct_ru(
-    config: DatasetConfig,
+    config: Optional[DatasetConfig] = None,
     limit: Optional[int] = None,
     shuffle_buffer: int = 10000,
     seed: int = 42,
@@ -133,18 +133,40 @@ class LLaVAInstructRuIterableDataset(TorchIterableDataset):
     """
     def __init__(
         self,
-        raw_hf_iterable,
+        raw_hf_iterable: Union[HFDataset, str, os.PathLike],
         dataset_root: str,
         seed: int = 42,
         skip_missing_images: bool = True,
     ):
-        self.raw_hf_iterable = raw_hf_iterable
-        self.dataset_root = dataset_root
         self.seed = seed
+        self.raw_hf_iterable = self._resolve_raw_iterable(raw_hf_iterable)
+        self.dataset_root = dataset_root
         self.skip_missing_images = skip_missing_images
+
+    def _resolve_raw_iterable(
+        self,
+        raw_hf_iterable: Union[HFDataset, str, os.PathLike],
+    ) -> HFDataset:
+        if isinstance(raw_hf_iterable, (str, os.PathLike)):
+            json_path = os.fspath(raw_hf_iterable)
+            if not os.path.exists(json_path):
+                raise FileNotFoundError(f"LLaVA instruct json file not found: {json_path}")
+
+            ds = load_dataset(
+                "json",
+                data_files=json_path,
+                streaming=True,
+                split="train",
+            )
+            return ds.shuffle(seed=self.seed, buffer_size=10_000)
+
+        return raw_hf_iterable
 
     def __iter__(self) -> Iterator[Dict[str, Any]]:
         for row in self.raw_hf_iterable:
+            if not isinstance(row, dict):
+                continue
+
             conversations = row.get("conversations", [])
             if len(conversations) < 2:
                 continue
