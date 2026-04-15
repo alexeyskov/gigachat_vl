@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 import torch
 import torch.nn as nn
 from PIL import Image
+from safetensors import safe_open
 
 from transformers import (
     AutoConfig,
@@ -117,6 +118,150 @@ def _maybe_tensor_to(
             return x.to(device=device, dtype=dtype)
         return x.to(device=device)
     return x
+
+
+def _candidate_safetensor_files(model_dir: Path) -> List[Path]:
+    index_path = model_dir / "model.safetensors.index.json"
+    if index_path.exists():
+        try:
+            index_data = json.loads(index_path.read_text())
+        except Exception:
+            index_data = {}
+        weight_map = index_data.get("weight_map", {})
+        shard_names = sorted(set(weight_map.values()))
+        if shard_names:
+            return [model_dir / shard_name for shard_name in shard_names]
+
+    single_file = model_dir / "model.safetensors"
+    if single_file.exists():
+        return [single_file]
+
+    shard_files = sorted(model_dir.glob("model-*.safetensors"))
+    if shard_files:
+        return shard_files
+
+    raise FileNotFoundError(f"No safetensors weights found under {model_dir}")
+
+
+def _load_prefixed_safetensor_state_dict(
+    model_dir: Path,
+    prefix: str,
+) -> Dict[str, torch.Tensor]:
+    state_dict: Dict[str, torch.Tensor] = {}
+
+    for weight_file in _candidate_safetensor_files(model_dir):
+        with safe_open(str(weight_file), framework="pt", device="cpu") as f:
+            for key in f.keys():
+                if key.startswith(prefix):
+                    state_dict[key[len(prefix) :]] = f.get_tensor(key)
+
+    if not state_dict:
+        raise KeyError(
+            f"No tensors with prefix '{prefix}' were found in {model_dir}"
+        )
+
+    return state_dict
+
+
+def _load_prefixed_safetensor_state_dict_from_candidates(
+    model_dir: Path,
+    prefixes: List[str],
+) -> Dict[str, torch.Tensor]:
+    last_error: Optional[Exception] = None
+    for prefix in prefixes:
+        try:
+            return _load_prefixed_safetensor_state_dict(model_dir, prefix)
+        except Exception as e:
+            last_error = e
+    raise RuntimeError(
+        f"Could not find any of the prefixes {prefixes} in {model_dir}"
+    ) from last_error
+
+
+def _load_gemma4_vision_modules(
+    model_dir: str,
+    cfg,
+    device: torch.device,
+    dtype: torch.dtype,
+):
+    from transformers.models.gemma4.modeling_gemma4 import (
+        Gemma4MultimodalEmbedder,
+        Gemma4VisionModel,
+    )
+
+    model_path = Path(model_dir)
+    vision_tower = Gemma4VisionModel(cfg.vision_config)
+    vision_projector = Gemma4MultimodalEmbedder(cfg.vision_config, cfg.text_config)
+
+    vision_state = _load_prefixed_safetensor_state_dict(
+        model_path,
+        prefix="model.vision_tower.",
+    )
+    projector_state = _load_prefixed_safetensor_state_dict(
+        model_path,
+        prefix="model.embed_vision.",
+    )
+
+    vision_tower.load_state_dict(vision_state, strict=True)
+    vision_projector.load_state_dict(projector_state, strict=True)
+
+    del vision_state
+    del projector_state
+
+    vision_tower.to(device=device, dtype=dtype)
+    vision_projector.to(device=device, dtype=dtype)
+    return vision_tower, vision_projector
+
+
+def _load_qwen35_vision_module(
+    model_dir: str,
+    cfg,
+    device: torch.device,
+    dtype: torch.dtype,
+):
+    from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5VisionModel
+
+    model_path = Path(model_dir)
+    vision_tower = Qwen3_5VisionModel(cfg.vision_config)
+    vision_state = _load_prefixed_safetensor_state_dict_from_candidates(
+        model_path,
+        prefixes=["model.visual.", "visual."],
+    )
+    vision_tower.load_state_dict(vision_state, strict=True)
+    del vision_state
+    vision_tower.to(device=device, dtype=dtype)
+    return vision_tower
+
+
+def _toggle_gradient_checkpointing(module: Optional[nn.Module], enabled: bool) -> bool:
+    if module is None:
+        return False
+
+    toggled = False
+    method_name = (
+        "gradient_checkpointing_enable" if enabled else "gradient_checkpointing_disable"
+    )
+    method = getattr(module, method_name, None)
+    if callable(method):
+        try:
+            method()
+        except TypeError:
+            method({})
+        toggled = True
+
+    for submodule in module.modules():
+        if hasattr(submodule, "gradient_checkpointing"):
+            try:
+                setattr(submodule, "gradient_checkpointing", enabled)
+                toggled = True
+            except Exception:
+                pass
+
+    config = getattr(module, "config", None)
+    if config is not None and hasattr(config, "use_cache") and enabled:
+        config.use_cache = False
+
+    return toggled
 
 
 def _normalize_qwen_image(image: Image.Image) -> Image.Image:
@@ -651,10 +796,23 @@ class GigaChatVL(nn.Module):
             try:
                 self.projector.load_state_dict(projector_state)
             except RuntimeError as e:
+                checkpoint_vision_dim = None
+                current_vision_dim = None
+                vision_proj_weight = projector_state.get("vision_proj.weight")
+                if torch.is_tensor(vision_proj_weight) and vision_proj_weight.dim() == 2:
+                    checkpoint_vision_dim = int(vision_proj_weight.shape[1])
+                current_weight = getattr(getattr(self.projector, "vision_proj", None), "weight", None)
+                if torch.is_tensor(current_weight) and current_weight.dim() == 2:
+                    current_vision_dim = int(current_weight.shape[1])
+
                 raise RuntimeError(
                     "Failed to load projector weights into QFormerProjector. "
-                    "This usually means the checkpoint was trained with a different "
-                    "projector architecture, for example the older MLPProjector."
+                    "This usually means either the checkpoint was trained with a different "
+                    "projector architecture, or it was trained with a different vision "
+                    "encoder than the one you are loading now. "
+                    f"checkpoint_vision_dim={checkpoint_vision_dim}, "
+                    f"current_vision_dim={current_vision_dim}, "
+                    f"current_vision_name={vision_name}"
                 ) from e
 
     def _load_vision_backend(self, vision_name: str):
@@ -700,41 +858,88 @@ class GigaChatVL(nn.Module):
         if model_type in {"qwen3_vl", "qwen3_5", "qwen3_5_vl"}:
             self.vision_backend = model_type
             self.vision_processor = AutoProcessor.from_pretrained(vision_name)
-
-            src = AutoModelForImageTextToText.from_pretrained(
-                vision_name,
-                dtype=vision_dtype,
-                low_cpu_mem_usage=True,
-            )
-
-            try:
-                self.vision_tower = _first_existing_path(
-                    src,
-                    [
-                        "model.visual",
-                        "visual",
-                        "model.vision_tower",
-                        "vision_tower",
-                        "model.vision_model",
-                        "vision_model",
-                    ],
-                )
-            except Exception:
-                self.vision_tower = None
-
-            if self.vision_tower is not None:
-                self.vision_tower.to(device=vision_device, dtype=vision_dtype)
-
-            if hasattr(src, "lm_head"):
-                del src.lm_head
-            if hasattr(src, "model") and hasattr(src.model, "language_model"):
-                del src.model.language_model
-            if hasattr(src, "language_model"):
-                del src.language_model
             self.vision_source_model = None
-            del src
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+
+            if model_type == "qwen3_5":
+                try:
+                    self.vision_tower = _load_qwen35_vision_module(
+                        model_dir=vision_name,
+                        cfg=cfg,
+                        device=vision_device,
+                        dtype=vision_dtype,
+                    )
+                except Exception as e:
+                    print(
+                        "Warning: failed to load Qwen3.5 vision-only module directly "
+                        f"from weights, falling back to full donor load: {e}"
+                    )
+                    src = AutoModelForImageTextToText.from_pretrained(
+                        vision_name,
+                        dtype=vision_dtype,
+                        low_cpu_mem_usage=True,
+                    )
+
+                    try:
+                        self.vision_tower = _first_existing_path(
+                            src,
+                            [
+                                "model.visual",
+                                "visual",
+                                "model.vision_tower",
+                                "vision_tower",
+                                "model.vision_model",
+                                "vision_model",
+                            ],
+                        )
+                    except Exception:
+                        self.vision_tower = None
+
+                    if self.vision_tower is not None:
+                        self.vision_tower.to(device=vision_device, dtype=vision_dtype)
+
+                    if hasattr(src, "lm_head"):
+                        del src.lm_head
+                    if hasattr(src, "model") and hasattr(src.model, "language_model"):
+                        del src.model.language_model
+                    if hasattr(src, "language_model"):
+                        del src.language_model
+                    del src
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+            else:
+                src = AutoModelForImageTextToText.from_pretrained(
+                    vision_name,
+                    dtype=vision_dtype,
+                    low_cpu_mem_usage=True,
+                )
+
+                try:
+                    self.vision_tower = _first_existing_path(
+                        src,
+                        [
+                            "model.visual",
+                            "visual",
+                            "model.vision_tower",
+                            "vision_tower",
+                            "model.vision_model",
+                            "vision_model",
+                        ],
+                    )
+                except Exception:
+                    self.vision_tower = None
+
+                if self.vision_tower is not None:
+                    self.vision_tower.to(device=vision_device, dtype=vision_dtype)
+
+                if hasattr(src, "lm_head"):
+                    del src.lm_head
+                if hasattr(src, "model") and hasattr(src.model, "language_model"):
+                    del src.model.language_model
+                if hasattr(src, "language_model"):
+                    del src.language_model
+                del src
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
             self.vision_hidden_size = getattr(cfg.vision_config, "out_hidden_size", None)
             if self.vision_hidden_size is None:
@@ -756,54 +961,68 @@ class GigaChatVL(nn.Module):
         if model_type == "gemma4":
             self.vision_backend = "gemma4"
             self.vision_processor = AutoProcessor.from_pretrained(vision_name)
-
-            src = AutoModelForImageTextToText.from_pretrained(
-                vision_name,
-                dtype=vision_dtype,
-                low_cpu_mem_usage=True,
-            )
-
-            try:
-                self.vision_tower = _first_existing_path(
-                    src,
-                    [
-                        "model.vision_tower",
-                        "vision_tower",
-                        "model.vision_model",
-                        "vision_model",
-                        "model.vision_encoder",
-                        "vision_encoder",
-                    ],
-                )
-            except Exception:
-                self.vision_tower = None
-
-            try:
-                self.vision_projector = _first_existing_path(
-                    src,
-                    [
-                        "model.multi_modal_projector",
-                        "multi_modal_projector",
-                    ],
-                )
-            except Exception:
-                self.vision_projector = None
-
-            if self.vision_tower is not None:
-                self.vision_tower.to(device=vision_device, dtype=vision_dtype)
-            if self.vision_projector is not None:
-                self.vision_projector.to(device=vision_device, dtype=vision_dtype)
-
-            if hasattr(src, "lm_head"):
-                del src.lm_head
-            if hasattr(src, "model") and hasattr(src.model, "language_model"):
-                del src.model.language_model
-            if hasattr(src, "language_model"):
-                del src.language_model
             self.vision_source_model = None
-            del src
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+
+            try:
+                self.vision_tower, self.vision_projector = _load_gemma4_vision_modules(
+                    model_dir=vision_name,
+                    cfg=cfg,
+                    device=vision_device,
+                    dtype=vision_dtype,
+                )
+            except Exception as e:
+                print(
+                    "Warning: failed to load Gemma4 vision-only modules directly "
+                    f"from weights, falling back to full donor load: {e}"
+                )
+                src = AutoModelForImageTextToText.from_pretrained(
+                    vision_name,
+                    dtype=vision_dtype,
+                    low_cpu_mem_usage=True,
+                )
+
+                try:
+                    self.vision_tower = _first_existing_path(
+                        src,
+                        [
+                            "model.vision_tower",
+                            "vision_tower",
+                            "model.vision_model",
+                            "vision_model",
+                            "model.vision_encoder",
+                            "vision_encoder",
+                        ],
+                    )
+                except Exception:
+                    self.vision_tower = None
+
+                try:
+                    self.vision_projector = _first_existing_path(
+                        src,
+                        [
+                            "model.embed_vision",
+                            "embed_vision",
+                            "model.multi_modal_projector",
+                            "multi_modal_projector",
+                        ],
+                    )
+                except Exception:
+                    self.vision_projector = None
+
+                if self.vision_tower is not None:
+                    self.vision_tower.to(device=vision_device, dtype=vision_dtype)
+                if self.vision_projector is not None:
+                    self.vision_projector.to(device=vision_device, dtype=vision_dtype)
+
+                if hasattr(src, "lm_head"):
+                    del src.lm_head
+                if hasattr(src, "model") and hasattr(src.model, "language_model"):
+                    del src.model.language_model
+                if hasattr(src, "language_model"):
+                    del src.language_model
+                del src
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
             self.vision_hidden_size = cfg.text_config.hidden_size
 
@@ -872,8 +1091,9 @@ class GigaChatVL(nn.Module):
         # Gemma4
         if self.vision_backend == "gemma4":
             prompts = [self.gemma_image_placeholder for _ in images]
+            nested_images = [[image] for image in images]
             batch = self.vision_processor(
-                images=images,
+                images=nested_images,
                 text=prompts,
                 return_tensors="pt",
                 padding=True,
@@ -1074,22 +1294,39 @@ class GigaChatVL(nn.Module):
             base_key = k.replace("vision_", "", 1)
             prepared[base_key] = _maybe_tensor_to(v, src_device, src_dtype)
 
+        image_position_ids = prepared.get("image_position_ids")
+        if image_position_ids is None:
+            raise RuntimeError(
+                "Gemma4 backend expects image_position_ids from the processor."
+            )
+
         ctx = torch.no_grad() if self.freeze_vision else nullcontext()
         with ctx:
-            vision_outputs = self.vision_tower(
-                pixel_values=prepared["pixel_values"],
-                return_dict=True,
-            )
+            try:
+                vision_outputs = self.vision_tower(
+                    pixel_values=prepared["pixel_values"],
+                    pixel_position_ids=image_position_ids,
+                    return_dict=True,
+                )
+            except TypeError:
+                vision_outputs = self.vision_tower(
+                    pixel_values=prepared["pixel_values"],
+                    image_position_ids=image_position_ids,
+                    return_dict=True,
+                )
             image_hidden_states = self.vision_projector(vision_outputs.last_hidden_state)
 
-        # Expected shape: [B, num_images, seq, H]
         if image_hidden_states.dim() == 4:
             if image_hidden_states.size(1) != 1:
                 raise NotImplementedError(
                     "Only 1 image per sample is supported for Gemma4 backend."
                 )
-            image_hidden_states = image_hidden_states[:, 0]
-        elif image_hidden_states.dim() != 3:
+            chunks = [image_hidden_states[i, 0] for i in range(image_hidden_states.size(0))]
+        elif image_hidden_states.dim() == 3:
+            chunks = [image_hidden_states[i] for i in range(image_hidden_states.size(0))]
+        elif image_hidden_states.dim() == 2:
+            chunks = None
+        else:
             raise RuntimeError(
                 f"Unexpected Gemma4 image_hidden_states shape: "
                 f"{tuple(image_hidden_states.shape)}"
@@ -1101,6 +1338,21 @@ class GigaChatVL(nn.Module):
         token_counts = (prepared["input_ids"] == image_token_id).sum(dim=1).tolist()
         token_counts = [int(x) for x in token_counts]
 
+        if chunks is None:
+            total_tokens = sum(token_counts)
+            if image_hidden_states.size(0) != total_tokens:
+                raise RuntimeError(
+                    "Gemma4 image features do not match placeholder count. "
+                    f"feature_rows={image_hidden_states.size(0)}, "
+                    f"token_counts={token_counts}"
+                )
+            chunks = list(torch.split(image_hidden_states, token_counts, dim=0))
+        elif len(chunks) != len(token_counts):
+            raise RuntimeError(
+                "Gemma4 image feature batch does not match token count batch. "
+                f"num_chunks={len(chunks)}, token_counts={token_counts}"
+            )
+
         out = []
         projector_device, projector_dtype = _module_device_dtype(self.projector)
         for i, n in enumerate(token_counts):
@@ -1109,7 +1361,7 @@ class GigaChatVL(nn.Module):
                     f"Could not infer Gemma4 image token count for sample {i}."
                 )
 
-            x = image_hidden_states[i, :n]
+            x = chunks[i][:n]
             y = self.projector(
                 x.to(
                     device=projector_device,
@@ -1150,7 +1402,12 @@ class GigaChatVL(nn.Module):
             )
 
         if self.vision_backend == "gemma4":
-            return self._encode_images_gemma4(vision_kwargs)
+            gemma_inputs = dict(vision_kwargs)
+            if vision_pixel_values is not None:
+                gemma_inputs["vision_pixel_values"] = vision_pixel_values
+            if vision_image_grid_thw is not None:
+                gemma_inputs["vision_image_grid_thw"] = vision_image_grid_thw
+            return self._encode_images_gemma4(gemma_inputs)
 
         raise RuntimeError(f"Unknown vision backend: {self.vision_backend}")
 
@@ -1370,6 +1627,24 @@ class GigaChatVL(nn.Module):
             for p in block.parameters():
                 p.requires_grad = True
 
+    def gradient_checkpointing_enable(self):
+        _toggle_gradient_checkpointing(self.llm, enabled=True)
+
+        if self.vision_tower is not None:
+            vision_trainable = any(p.requires_grad for p in self.vision_tower.parameters())
+            if vision_trainable:
+                _toggle_gradient_checkpointing(self.vision_tower, enabled=True)
+
+        return self
+
+    def gradient_checkpointing_disable(self):
+        _toggle_gradient_checkpointing(self.llm, enabled=False)
+
+        if self.vision_tower is not None:
+            _toggle_gradient_checkpointing(self.vision_tower, enabled=False)
+
+        return self
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -1384,6 +1659,10 @@ class GigaChatVL(nn.Module):
             for k, v in kwargs.items()
             if k.startswith("vision_") and v is not None
         }
+        if vision_pixel_values is not None:
+            vision_kwargs["vision_pixel_values"] = vision_pixel_values
+        if vision_image_grid_thw is not None:
+            vision_kwargs["vision_image_grid_thw"] = vision_image_grid_thw
 
         if self.vision_backend == "qwen2_5_vl":
             image_features_per_sample = self.encode_images(
@@ -1449,6 +1728,7 @@ class GigaChatVLForInference(GigaChatVL):
 
         resolved_llm_name = llm_name or meta.get("llm_name") or adapter_config.get("base_model_name_or_path")
         resolved_vision_name = vision_name or meta.get("vision_name")
+        meta_vision_name = meta.get("vision_name")
 
         if resolved_llm_name is None:
             raise RuntimeError(
@@ -1459,6 +1739,13 @@ class GigaChatVLForInference(GigaChatVL):
             raise RuntimeError(
                 "Could not infer vision model path from checkpoint metadata. "
                 "Pass vision_name explicitly."
+            )
+
+        if vision_name is not None and meta_vision_name is not None and vision_name != meta_vision_name:
+            print(
+                "Warning: explicit vision_name differs from checkpoint metadata. "
+                f"meta_vision_name={meta_vision_name}, explicit_vision_name={vision_name}. "
+                "Projector weights will only load if the checkpoint was trained with the same vision donor."
             )
 
         super().__init__(
