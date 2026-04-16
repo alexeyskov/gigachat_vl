@@ -10,7 +10,7 @@ from datasets import load_dataset
 from datasets import IterableDataset as HFDataset
 from torch.utils.data import IterableDataset as TorchIterableDataset
 
-from src.dataset.dataset_config import DatasetConfig
+from dataset.dataset_base import DatasetConfig, CAPTIONING_QUESTION_TEMPLATES
 from src.dataset.finevision import open_image
 
 def download_mscoco_caption_ml(
@@ -110,19 +110,6 @@ def load_mscoco_caption_ml(
 
     return ds
 
-QUESTION_TEMPLATES = [
-    f"Опиши это изображение",
-    f"Что изображено на этой картинке?",
-    f"Расскажи, что ты видишь на этом изображении.",
-    f"Опиши данное изображение.",
-    f"Что находится на этой фотографии?",
-    f"Дай подробное описание этого изображения",
-    f"Расскажи, что показано на картинке.",
-    f"Опиши сцену, изображённую на фото.",
-    f"Что ты можешь рассказать об этом изображении?",
-    f"Опиши всё, что видно на этом изображении.",
-]
-
 class MSCOCOCaptionMlIterableDataset(TorchIterableDataset):
     """
     Converts raw MSCOCO Caption RU samples into the unified format:
@@ -161,7 +148,7 @@ class MSCOCOCaptionMlIterableDataset(TorchIterableDataset):
             if not russian_caption:
                 continue
 
-            question = self.random.choice(QUESTION_TEMPLATES)
+            question = self.random.choice(CAPTIONING_QUESTION_TEMPLATES)
 
             yield {
                 "image": image,

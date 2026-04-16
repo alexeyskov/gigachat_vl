@@ -11,7 +11,7 @@ from huggingface_hub import snapshot_download
 from huggingface_hub import login
 
 from src.dataset.finevision import open_image
-from src.dataset.dataset_config import DatasetConfig
+from dataset.dataset_base import DatasetConfig
 
 
 def download_gqa_ru(

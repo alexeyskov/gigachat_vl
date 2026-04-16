@@ -8,7 +8,7 @@ from datasets import IterableDataset as HFDataset
 from torch.utils.data import IterableDataset as TorchIterableDataset
 
 
-from src.dataset.dataset_config import DatasetConfig
+from dataset.dataset_base import DatasetConfig
 from src.dataset.llava_pretrain_ru import (
     download_llava_pretrain_ru,
     load_llava_pretrain_ru, 
@@ -28,6 +28,15 @@ from src.dataset.llava_instruct_ru import (
     download_llava_instruct_ru,
     load_llava_instruct_ru, 
     LLaVAInstructRuIterableDataset
+)
+from src.dataset.rustitw_ocr import (
+    load_rustitw_ocr,
+    RusTitWOCRIterableDataset
+)
+from src.dataset.openhermes_ru_text import (
+    download_openhermes_ru_text,
+    load_openhermes_ru_text,
+    OpenHermesRuIterableDataset
 )
 
 class SupportedDatasets(Enum):
@@ -66,6 +75,25 @@ class SupportedDatasets(Enum):
         download_func=download_llava_instruct_ru,
         requires_download=True,
     )
+
+    RUSTITW_OCR = DatasetConfig(
+        name="rustitw_ru",
+        total_samples=28_000,
+        load_raw_func=load_rustitw_ocr,
+        dataset_class=RusTitWOCRIterableDataset,
+        download_func=None,
+        requires_download=True,
+    )
+
+    OPENHERMES_RU_TEXT = DatasetConfig(
+        name="d0rj/OpenHermes-2.5-ru",
+        total_samples=1_000_000,
+        load_raw_func=load_openhermes_ru_text,
+        dataset_class=OpenHermesRuIterableDataset,
+        download_func=download_openhermes_ru_text,
+        requires_download=True,
+    )
+
 
 class MixedTorchIterableDataset(TorchIterableDataset):
     """
