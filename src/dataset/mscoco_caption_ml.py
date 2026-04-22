@@ -10,7 +10,7 @@ from datasets import load_dataset
 from datasets import IterableDataset as HFDataset
 from torch.utils.data import IterableDataset as TorchIterableDataset
 
-from dataset.dataset_base import DatasetConfig, CAPTIONING_QUESTION_TEMPLATES
+from src.dataset.dataset_base import DatasetConfig, CAPTIONING_QUESTION_TEMPLATES
 from src.dataset.finevision import open_image
 
 def download_mscoco_caption_ml(

@@ -8,7 +8,7 @@ from datasets import IterableDataset as HFDataset
 from torch.utils.data import IterableDataset as TorchIterableDataset
 
 
-from dataset.dataset_base import DatasetConfig
+from src.dataset.dataset_base import DatasetConfig
 from src.dataset.llava_pretrain_ru import (
     download_llava_pretrain_ru,
     load_llava_pretrain_ru, 

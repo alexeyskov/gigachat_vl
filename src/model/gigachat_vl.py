@@ -523,8 +523,15 @@ def _load_fast_tokenizer(tokenizer_name: str) -> PreTrainedTokenizerFast:
     return tokenizer
 
 
-def _build_chat_prompt(tokenizer, text: str, include_image: bool) -> str:
-    user_text = f"{IMAGE_TOKEN}\n{text}" if include_image else text
+def _build_chat_prompt(tokenizer, text: str, num_images: int = 1) -> str:
+    if num_images < 0:
+        raise ValueError(f"num_images must be >= 0, got {num_images}")
+
+    image_prefix = ""
+    if num_images > 0:
+        image_prefix = "\n".join([IMAGE_TOKEN] * num_images)
+
+    user_text = text if not image_prefix else f"{image_prefix}\n{text}"
 
     if getattr(tokenizer, "chat_template", None):
         try:
@@ -642,6 +649,29 @@ class QFormerProjector(nn.Module):
         return queries
 
 
+def _infer_projector_type_from_state_dict(state_dict: Dict[str, Any]) -> Optional[str]:
+    keys = set(state_dict.keys())
+    if any(key.startswith("net.") for key in keys):
+        return "mlp"
+    if "vision_proj.weight" in keys or "query_tokens" in keys:
+        return "qformer"
+    return None
+
+
+def _resolve_checkpoint_sidecar_path(
+    checkpoint_path: Path,
+    relative_name: str,
+) -> Optional[Path]:
+    candidates = [
+        checkpoint_path / relative_name,
+        checkpoint_path.parent / relative_name,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 class GigaChatVL(nn.Module):
     def __init__(
         self,
@@ -655,6 +685,8 @@ class GigaChatVL(nn.Module):
         lora_dropout: float = 0.05,
         lora_path: Optional[str] = None,
         projector_path: Optional[str] = None,
+        projector_type: str = "qformer",
+        projector_num_queries: int = 32,
     ):
         super().__init__()
 
@@ -778,21 +810,44 @@ class GigaChatVL(nn.Module):
         self.vision_projector = None
         self.vision_hidden_size = None
         self.gemma_image_placeholder = None
-        self.projector_type = "qformer"
+        self.projector_type = projector_type.lower()
+        self.projector_num_queries = projector_num_queries
+        if self.projector_type not in {"qformer", "mlp"}:
+            raise ValueError(
+                f"Unsupported projector_type={projector_type}. "
+                "Supported values: 'qformer', 'mlp'."
+            )
 
         self._load_vision_backend(vision_name)
 
         # Connector
-        self.projector = QFormerProjector(
-            vision_dim=self.vision_hidden_size,
-            llm_dim=self.llm_hidden_size,
-        )
+        if self.projector_type == "qformer":
+            self.projector = QFormerProjector(
+                vision_dim=self.vision_hidden_size,
+                llm_dim=self.llm_hidden_size,
+                num_queries=self.projector_num_queries,
+            )
+        else:
+            self.projector = MLPProjector(
+                vision_dim=self.vision_hidden_size,
+                llm_dim=self.llm_hidden_size,
+            )
         self.projector.to(
             device=self.llm.get_input_embeddings().weight.device,
             dtype=self.llm.get_input_embeddings().weight.dtype,
         )
         if projector_path is not None:
             projector_state = torch.load(projector_path, map_location="cpu")
+            checkpoint_projector_type = _infer_projector_type_from_state_dict(projector_state)
+            if (
+                checkpoint_projector_type is not None
+                and checkpoint_projector_type != self.projector_type
+            ):
+                raise RuntimeError(
+                    "Projector type mismatch while loading checkpoint. "
+                    f"checkpoint_projector_type={checkpoint_projector_type}, "
+                    f"current_projector_type={self.projector_type}"
+                )
             try:
                 self.projector.load_state_dict(projector_state)
             except RuntimeError as e:
@@ -801,12 +856,22 @@ class GigaChatVL(nn.Module):
                 vision_proj_weight = projector_state.get("vision_proj.weight")
                 if torch.is_tensor(vision_proj_weight) and vision_proj_weight.dim() == 2:
                     checkpoint_vision_dim = int(vision_proj_weight.shape[1])
+                if checkpoint_vision_dim is None:
+                    mlp_weight = projector_state.get("net.0.weight")
+                    if torch.is_tensor(mlp_weight) and mlp_weight.dim() == 2:
+                        checkpoint_vision_dim = int(mlp_weight.shape[1])
+
                 current_weight = getattr(getattr(self.projector, "vision_proj", None), "weight", None)
+                if current_weight is None and hasattr(self.projector, "net"):
+                    try:
+                        current_weight = self.projector.net[0].weight
+                    except Exception:
+                        current_weight = None
                 if torch.is_tensor(current_weight) and current_weight.dim() == 2:
                     current_vision_dim = int(current_weight.shape[1])
 
                 raise RuntimeError(
-                    "Failed to load projector weights into QFormerProjector. "
+                    f"Failed to load projector weights into {type(self.projector).__name__}. "
                     "This usually means either the checkpoint was trained with a different "
                     "projector architecture, or it was trained with a different vision "
                     "encoder than the one you are loading now. "
@@ -814,6 +879,106 @@ class GigaChatVL(nn.Module):
                     f"current_vision_dim={current_vision_dim}, "
                     f"current_vision_name={vision_name}"
                 ) from e
+
+    def build_vlm_meta(self) -> Dict[str, Any]:
+        return {
+            "image_token": IMAGE_TOKEN,
+            "image_token_id": self.image_token_id,
+            "llm_name": self.llm_name,
+            "llm_hidden_size": self.llm_hidden_size,
+            "projector_type": getattr(self, "projector_type", None),
+            "projector_num_queries": getattr(self.projector, "num_queries", None),
+            "vision_hidden_size": self.vision_hidden_size,
+            "vision_backend": self.vision_backend,
+            "vision_name": self.vision_name,
+            "freeze_vision": self.freeze_vision,
+        }
+
+    def save_training_setup(self, output_dir: str) -> None:
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        tokenizer_dir = output_path / "tokenizer"
+        vision_processor_dir = output_path / "vision_processor"
+        meta_path = output_path / "vlm_meta.json"
+
+        self.tokenizer.save_pretrained(str(tokenizer_dir))
+
+        if self.vision_processor is not None and hasattr(self.vision_processor, "save_pretrained"):
+            self.vision_processor.save_pretrained(str(vision_processor_dir))
+
+        meta_path.write_text(
+            json.dumps(self.build_vlm_meta(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    @classmethod
+    def from_training_checkpoint(
+        cls,
+        checkpoint_dir: str,
+        llm_name: Optional[str] = None,
+        vision_name: Optional[str] = None,
+        use_4bit_llm: bool = True,
+        freeze_vision: bool = True,
+        lora_r: int = 16,
+        lora_alpha: int = 32,
+        lora_dropout: float = 0.05,
+        projector_type: Optional[str] = None,
+        projector_num_queries: Optional[int] = None,
+    ) -> "GigaChatVL":
+        checkpoint_path = Path(checkpoint_dir)
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Checkpoint path does not exist: {checkpoint_path}")
+
+        meta_path = _resolve_checkpoint_sidecar_path(checkpoint_path, "vlm_meta.json")
+        if meta_path is None:
+            raise FileNotFoundError(
+                "Could not find `vlm_meta.json` next to the checkpoint or in its parent "
+                f"experiment directory: {checkpoint_path}"
+            )
+
+        tokenizer_dir = _resolve_checkpoint_sidecar_path(checkpoint_path, "tokenizer")
+        vision_processor_dir = _resolve_checkpoint_sidecar_path(
+            checkpoint_path,
+            "vision_processor",
+        )
+
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        resolved_llm_name = llm_name or meta.get("llm_name")
+        resolved_vision_name = vision_name or meta.get("vision_name")
+        resolved_projector_type = projector_type or meta.get("projector_type") or "qformer"
+        resolved_projector_num_queries = projector_num_queries
+        if resolved_projector_num_queries is None:
+            resolved_projector_num_queries = meta.get("projector_num_queries")
+        if resolved_projector_num_queries is None:
+            resolved_projector_num_queries = 32
+
+        if resolved_llm_name is None:
+            raise RuntimeError(
+                "Could not infer base LLM path from training metadata. Pass llm_name explicitly."
+            )
+        if resolved_vision_name is None:
+            raise RuntimeError(
+                "Could not infer vision model path from training metadata. Pass vision_name explicitly."
+            )
+
+        model = cls(
+            llm_name=resolved_llm_name,
+            vision_name=resolved_vision_name,
+            tokenizer_name=str(tokenizer_dir) if tokenizer_dir is not None else resolved_llm_name,
+            use_4bit_llm=use_4bit_llm,
+            freeze_vision=freeze_vision,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            projector_type=resolved_projector_type,
+            projector_num_queries=int(resolved_projector_num_queries),
+        )
+
+        if vision_processor_dir is not None:
+            model.vision_processor = AutoProcessor.from_pretrained(str(vision_processor_dir))
+
+        return model
 
     def _load_vision_backend(self, vision_name: str):
         cfg = AutoConfig.from_pretrained(vision_name, trust_remote_code=False)
@@ -1411,12 +1576,97 @@ class GigaChatVL(nn.Module):
 
         raise RuntimeError(f"Unknown vision backend: {self.vision_backend}")
 
+    def _group_image_features_by_sample(
+        self,
+        flat_image_features: List[torch.Tensor],
+        num_images_per_sample: List[int],
+    ) -> List[List[torch.Tensor]]:
+        grouped: List[List[torch.Tensor]] = []
+        offset = 0
+
+        for count in num_images_per_sample:
+            if count < 0:
+                raise ValueError(f"num_images_per_sample must be >= 0, got {count}")
+            grouped.append(flat_image_features[offset : offset + count])
+            offset += count
+
+        if offset != len(flat_image_features):
+            raise RuntimeError(
+                "Mismatch between flat image features and num_images_per_sample. "
+                f"num_features={len(flat_image_features)}, consumed={offset}, "
+                f"counts={num_images_per_sample}"
+            )
+
+        return grouped
+
+    def _merge_single_sample_text_and_images(
+        self,
+        ids_i: torch.Tensor,
+        embeds_i: torch.Tensor,
+        labels_i: Optional[torch.Tensor],
+        sample_image_features: List[torch.Tensor],
+    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        image_positions = (ids_i == self.image_token_id).nonzero(as_tuple=False).flatten()
+        num_images = len(sample_image_features)
+
+        if image_positions.numel() != num_images:
+            raise ValueError(
+                f"Number of {IMAGE_TOKEN} placeholders must match number of images "
+                f"in the sample. placeholders={image_positions.numel()}, images={num_images}"
+            )
+
+        if num_images == 0:
+            return ids_i, embeds_i, labels_i
+
+        merged_ids_parts = []
+        merged_embed_parts = []
+        merged_label_parts = [] if labels_i is not None else None
+        cursor = 0
+
+        for pos, img_feats in zip(image_positions.tolist(), sample_image_features):
+            merged_ids_parts.append(ids_i[cursor:pos])
+            merged_embed_parts.append(embeds_i[cursor:pos])
+            if merged_label_parts is not None:
+                merged_label_parts.append(labels_i[cursor:pos])
+
+            merged_ids_parts.append(
+                torch.full(
+                    (img_feats.size(0),),
+                    self.image_token_id,
+                    dtype=ids_i.dtype,
+                    device=ids_i.device,
+                )
+            )
+            merged_embed_parts.append(img_feats)
+            if merged_label_parts is not None:
+                merged_label_parts.append(
+                    torch.full(
+                        (img_feats.size(0),),
+                        IGNORE_INDEX,
+                        dtype=labels_i.dtype,
+                        device=labels_i.device,
+                    )
+                )
+            cursor = pos + 1
+
+        merged_ids_parts.append(ids_i[cursor:])
+        merged_embed_parts.append(embeds_i[cursor:])
+        if merged_label_parts is not None:
+            merged_label_parts.append(labels_i[cursor:])
+
+        merged_ids = torch.cat(merged_ids_parts, dim=0)
+        merged_embeds = torch.cat(merged_embed_parts, dim=0)
+        merged_labels = (
+            torch.cat(merged_label_parts, dim=0) if merged_label_parts is not None else None
+        )
+        return merged_ids, merged_embeds, merged_labels
+
     def _merge_text_and_image(
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         labels: Optional[torch.Tensor],
-        image_features_per_sample: List[torch.Tensor],
+        image_features_per_sample: List[List[torch.Tensor]],
     ):
         embed_tokens = self.llm.get_input_embeddings()
         base_embeds = embed_tokens(input_ids)
@@ -1431,24 +1681,12 @@ class GigaChatVL(nn.Module):
 
             ids_i = input_ids[i, :seq_len_i]
             embeds_i = base_embeds[i, :seq_len_i]
-
-            image_pos = (ids_i == self.image_token_id).nonzero(as_tuple=False).flatten()
-            if image_pos.numel() != 1:
-                raise ValueError(
-                    f"Every sample must contain exactly one {IMAGE_TOKEN}. "
-                    f"Found {image_pos.numel()} in sample {i}."
-                )
-
-            pos = int(image_pos.item())
-            img_feats = image_features_per_sample[i]
-
-            merged_embeds = torch.cat(
-                [
-                    embeds_i[:pos],
-                    img_feats,
-                    embeds_i[pos + 1 :],
-                ],
-                dim=0,
+            labels_i = labels[i, :seq_len_i] if labels is not None else None
+            _, merged_embeds, merged_labels = self._merge_single_sample_text_and_images(
+                ids_i=ids_i,
+                embeds_i=embeds_i,
+                labels_i=labels_i,
+                sample_image_features=image_features_per_sample[i],
             )
 
             merged_mask = torch.ones(
@@ -1456,24 +1694,6 @@ class GigaChatVL(nn.Module):
                 dtype=attention_mask.dtype,
                 device=merged_embeds.device,
             )
-
-            if labels is not None:
-                labels_i = labels[i, :seq_len_i]
-                merged_labels = torch.cat(
-                    [
-                        labels_i[:pos],
-                        torch.full(
-                            (img_feats.size(0),),
-                            IGNORE_INDEX,
-                            dtype=labels_i.dtype,
-                            device=labels_i.device,
-                        ),
-                        labels_i[pos + 1 :],
-                    ],
-                    dim=0,
-                )
-            else:
-                merged_labels = None
 
             batch_embeds.append(merged_embeds)
             batch_masks.append(merged_mask)
@@ -1533,10 +1753,27 @@ class GigaChatVL(nn.Module):
     def _build_generation_inputs(
         self,
         text: str,
-        image: Optional[Image.Image],
+        image: Optional[Any],
     ):
-        include_image = image is not None
-        prompt = _build_chat_prompt(self.tokenizer, text, include_image=include_image)
+        if image is None:
+            images: List[Image.Image] = []
+        elif isinstance(image, Image.Image):
+            images = [image.convert("RGB")]
+        elif isinstance(image, (list, tuple)):
+            images = []
+            for item in image:
+                if not isinstance(item, Image.Image):
+                    raise TypeError(
+                        "Every item in image list must be PIL.Image.Image. "
+                        f"Got {type(item)}"
+                    )
+                images.append(item.convert("RGB"))
+        else:
+            raise TypeError(
+                f"image must be PIL.Image.Image, list[Image.Image], or None, got {type(image)}"
+            )
+
+        prompt = _build_chat_prompt(self.tokenizer, text, num_images=len(images))
         text_batch = self.tokenizer(
             prompt,
             return_tensors="pt",
@@ -1547,51 +1784,32 @@ class GigaChatVL(nn.Module):
         attention_mask = text_batch["attention_mask"]
         llm_device = self.llm.get_input_embeddings().weight.device
 
-        if image is None:
+        if not images:
             return {
                 "input_ids": input_ids.to(llm_device),
                 "attention_mask": attention_mask.to(llm_device),
                 "prompt_length": int(attention_mask[0].sum().item()),
             }
 
-        vision_batch = self.prepare_vision_inputs([image])
-        image_features_per_sample = self.encode_images(**vision_batch)
+        vision_batch = self.prepare_vision_inputs(images)
+        flat_image_features = self.encode_images(**vision_batch)
+        grouped_image_features = self._group_image_features_by_sample(
+            flat_image_features=flat_image_features,
+            num_images_per_sample=[len(images)],
+        )
         input_ids = input_ids.to(llm_device)
         attention_mask = attention_mask.to(llm_device)
 
         embed_tokens = self.llm.get_input_embeddings()
         base_embeds = embed_tokens(input_ids)
-        img_feats = image_features_per_sample[0]
-
-        image_pos = (input_ids[0] == self.image_token_id).nonzero(as_tuple=False).flatten()
-        if image_pos.numel() != 1:
-            raise ValueError(
-                f"Prompt must contain exactly one {IMAGE_TOKEN}. Found {image_pos.numel()}."
-            )
-
-        pos = int(image_pos.item())
-        expanded_input_ids = torch.cat(
-            [
-                input_ids[0, :pos],
-                torch.full(
-                    (img_feats.size(0),),
-                    self.image_token_id,
-                    dtype=input_ids.dtype,
-                    device=input_ids.device,
-                ),
-                input_ids[0, pos + 1 :],
-            ],
-            dim=0,
-        ).unsqueeze(0)
-
-        inputs_embeds = torch.cat(
-            [
-                base_embeds[0, :pos],
-                img_feats,
-                base_embeds[0, pos + 1 :],
-            ],
-            dim=0,
-        ).unsqueeze(0)
+        expanded_input_ids, merged_embeds, _ = self._merge_single_sample_text_and_images(
+            ids_i=input_ids[0],
+            embeds_i=base_embeds[0],
+            labels_i=None,
+            sample_image_features=grouped_image_features[0],
+        )
+        expanded_input_ids = expanded_input_ids.unsqueeze(0)
+        inputs_embeds = merged_embeds.unsqueeze(0)
 
         attention_mask = torch.ones(
             expanded_input_ids.shape,
@@ -1652,6 +1870,7 @@ class GigaChatVL(nn.Module):
         labels: Optional[torch.Tensor] = None,
         vision_pixel_values: Optional[torch.Tensor] = None,
         vision_image_grid_thw: Optional[torch.Tensor] = None,
+        vision_num_images_per_sample: Optional[torch.Tensor] = None,
         **kwargs,
     ):
         vision_kwargs = {
@@ -1664,20 +1883,44 @@ class GigaChatVL(nn.Module):
         if vision_image_grid_thw is not None:
             vision_kwargs["vision_image_grid_thw"] = vision_image_grid_thw
 
+        if vision_num_images_per_sample is None:
+            if vision_kwargs:
+                num_images_per_sample = [1] * input_ids.size(0)
+            else:
+                num_images_per_sample = [0] * input_ids.size(0)
+        elif torch.is_tensor(vision_num_images_per_sample):
+            num_images_per_sample = [int(x) for x in vision_num_images_per_sample.tolist()]
+        else:
+            num_images_per_sample = [int(x) for x in vision_num_images_per_sample]
+
+        total_num_images = sum(num_images_per_sample)
+        if total_num_images == 0:
+            return self.llm(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels,
+                use_cache=False,
+            )
+
         if self.vision_backend == "qwen2_5_vl":
-            image_features_per_sample = self.encode_images(
+            flat_image_features = self.encode_images(
                 vision_pixel_values=vision_pixel_values,
                 vision_image_grid_thw=vision_image_grid_thw,
             )
         elif self.vision_backend in {"qwen3_vl", "qwen3_5", "qwen3_5_vl"}:
-            image_features_per_sample = self.encode_images(
+            flat_image_features = self.encode_images(
                 vision_pixel_values=vision_pixel_values,
                 vision_image_grid_thw=vision_image_grid_thw,
             )
         elif self.vision_backend == "gemma4":
-            image_features_per_sample = self.encode_images(**vision_kwargs)
+            flat_image_features = self.encode_images(**vision_kwargs)
         else:
             raise RuntimeError(f"Unknown vision backend: {self.vision_backend}")
+
+        image_features_per_sample = self._group_image_features_by_sample(
+            flat_image_features=flat_image_features,
+            num_images_per_sample=num_images_per_sample,
+        )
 
         inputs_embeds, attention_mask, labels = self._merge_text_and_image(
             input_ids=input_ids,
@@ -1704,6 +1947,8 @@ class GigaChatVLForInference(GigaChatVL):
         lora_r: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
+        projector_type: Optional[str] = None,
+        projector_num_queries: Optional[int] = None,
     ):
         checkpoint_path = Path(checkpoint_dir)
         meta_path = checkpoint_path / "vlm_meta.json"
@@ -1729,6 +1974,21 @@ class GigaChatVLForInference(GigaChatVL):
         resolved_llm_name = llm_name or meta.get("llm_name") or adapter_config.get("base_model_name_or_path")
         resolved_vision_name = vision_name or meta.get("vision_name")
         meta_vision_name = meta.get("vision_name")
+        projector_state = torch.load(projector_path, map_location="cpu")
+        inferred_projector_type = _infer_projector_type_from_state_dict(projector_state)
+        resolved_projector_type = (
+            projector_type
+            or meta.get("projector_type")
+            or inferred_projector_type
+            or "qformer"
+        )
+        resolved_projector_num_queries = projector_num_queries
+        if resolved_projector_num_queries is None:
+            resolved_projector_num_queries = meta.get("projector_num_queries")
+        if resolved_projector_num_queries is None and torch.is_tensor(projector_state.get("query_tokens")):
+            resolved_projector_num_queries = int(projector_state["query_tokens"].shape[1])
+        if resolved_projector_num_queries is None:
+            resolved_projector_num_queries = 32
 
         if resolved_llm_name is None:
             raise RuntimeError(
@@ -1759,6 +2019,8 @@ class GigaChatVLForInference(GigaChatVL):
             lora_dropout=lora_dropout,
             lora_path=str(lora_dir),
             projector_path=str(projector_path) if projector_path.exists() else None,
+            projector_type=resolved_projector_type,
+            projector_num_queries=int(resolved_projector_num_queries),
         )
 
         if vision_processor_dir.exists():
@@ -1770,18 +2032,12 @@ class GigaChatVLForInference(GigaChatVL):
     def inference(
         self,
         text: str,
-        image: Optional[Image.Image] = None,
+        image: Optional[Any] = None,
         max_new_tokens: int = 128,
         do_sample: bool = False,
         temperature: float = 1.0,
         top_p: float = 1.0,
     ) -> str:
-        if image is not None and not isinstance(image, Image.Image):
-            raise TypeError(f"image must be PIL.Image.Image or None, got {type(image)}")
-
-        if image is not None:
-            image = image.convert("RGB")
-
         prepared = self._build_generation_inputs(text=text, image=image)
 
         device = self.llm.get_input_embeddings().weight.device

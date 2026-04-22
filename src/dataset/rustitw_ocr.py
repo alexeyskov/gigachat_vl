@@ -8,7 +8,7 @@ from datasets import IterableDataset as HFDataset
 from torch.utils.data import IterableDataset as TorchIterableDataset
 
 from src.dataset.finevision import open_image
-from dataset.dataset_base import DatasetConfig, OCR_QUESTION_TEMPLATES
+from src.dataset.dataset_base import DatasetConfig, OCR_QUESTION_TEMPLATES
 
 def load_rustitw_ocr(
     config: Optional[DatasetConfig] = None,

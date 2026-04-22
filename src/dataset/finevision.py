@@ -29,8 +29,15 @@ def open_image(x: Any) -> Image.Image:
     raise ValueError(f"Unsupported image field type: {type(x)}")
 
 
-def build_prompt(tokenizer, question: str) -> str:
-    user_text = f"{IMAGE_TOKEN}\n{question}"
+def build_prompt(tokenizer, question: str, num_images: int = 1) -> str:
+    if num_images < 0:
+        raise ValueError(f"num_images must be >= 0, got {num_images}")
+
+    image_prefix = ""
+    if num_images > 0:
+        image_prefix = "\n".join([IMAGE_TOKEN] * num_images)
+
+    user_text = question if not image_prefix else f"{image_prefix}\n{question}"
 
     if getattr(tokenizer, "chat_template", None):
         try:
@@ -46,6 +53,21 @@ def build_prompt(tokenizer, question: str) -> str:
     return f"User: {user_text}\nAssistant:"
 
 
+def load_images_from_example(ex: Dict[str, Any]) -> List[Image.Image]:
+    if "images" in ex and ex["images"] is not None:
+        raw_images = ex["images"]
+    else:
+        raw_images = ex.get("image")
+
+    if raw_images is None:
+        return []
+
+    if isinstance(raw_images, (list, tuple)):
+        return [open_image(x) for x in raw_images]
+
+    return [open_image(raw_images)]
+
+
 class FineVisionIterableDataset(IterableDataset):
     """
     Converts FineVision rows:
@@ -57,7 +79,7 @@ class FineVisionIterableDataset(IterableDataset):
 
     into flat training samples:
       {
-        "image": PIL.Image,
+        "image": PIL.Image | List[PIL.Image] | None,
         "question": str,
         "answer": str,
       }
@@ -90,7 +112,7 @@ class FineVisionIterableDataset(IterableDataset):
             if self.skip_multi_image and len(images) != 1:
                 continue
 
-            image = images[0]
+            image = images[0] if len(images) == 1 else list(images)
 
             turns = list(texts)
             if self.shuffle_conversations:
@@ -124,28 +146,30 @@ class VLMDataCollator:
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         tokenizer = self.model.tokenizer
 
-        images = []
+        flat_images = []
+        num_images_per_sample = []
         prompts = []
         full_texts = []
 
         for ex in features:
             try:
-                image = open_image(ex["image"])
+                images = load_images_from_example(ex)
             except Exception as e:
                 print(f"Skipping sample with unreadable image: {e}")
                 continue
             question = ex["question"]
             answer = ex["answer"]
 
-            prompt = build_prompt(tokenizer, question)
+            prompt = build_prompt(tokenizer, question, num_images=len(images))
             full_text = prompt + answer + tokenizer.eos_token
 
-            images.append(image)
+            flat_images.extend(images)
+            num_images_per_sample.append(len(images))
             prompts.append(prompt)
             full_texts.append(full_text)
 
-        if not images:
-            raise RuntimeError("All samples in the batch were filtered out due to image errors.")
+        if not full_texts:
+            raise RuntimeError("All samples in the batch were filtered out during collation.")
 
         text_batch = tokenizer(
             full_texts,
@@ -170,12 +194,18 @@ class VLMDataCollator:
             prefix_len = min(len(prompt_ids), labels.size(1))
             labels[i, :prefix_len] = IGNORE_INDEX
 
-        vision_batch = self.model.prepare_vision_inputs(images)
+        vision_batch = {}
+        if flat_images:
+            vision_batch = self.model.prepare_vision_inputs(flat_images)
 
         return {
             "input_ids": text_batch["input_ids"],
             "attention_mask": text_batch["attention_mask"],
             "labels": labels,
+            "vision_num_images_per_sample": torch.tensor(
+                num_images_per_sample,
+                dtype=torch.long,
+            ),
             **vision_batch,
         }
 
