@@ -11,33 +11,32 @@ from torch.utils.data import IterableDataset as TorchIterableDataset
 from src.dataset.dataset_base import DatasetConfig
 from src.dataset.llava_pretrain_ru import (
     download_llava_pretrain_ru,
-    load_llava_pretrain_ru, 
-    LLaVAPretrainRuIterableDataset
+    load_llava_pretrain_ru,
+    LLaVAPretrainRuIterableDataset,
 )
 from src.dataset.mscoco_caption_ml import (
     download_mscoco_caption_ml,
     load_mscoco_caption_ml,
-    MSCOCOCaptionMlIterableDataset
+    MSCOCOCaptionMlIterableDataset,
 )
-from src.dataset.gqa_ru import (
-    download_gqa_ru,
-    load_gqa_ru,
-    GQARUIterableDataset
-)
+from src.dataset.gqa_ru import download_gqa_ru, load_gqa_ru, GQARUIterableDataset
 from src.dataset.llava_instruct_ru import (
     download_llava_instruct_ru,
-    load_llava_instruct_ru, 
-    LLaVAInstructRuIterableDataset
+    load_llava_instruct_ru,
+    LLaVAInstructRuIterableDataset,
 )
-from src.dataset.rustitw_ocr import (
-    load_rustitw_ocr,
-    RusTitWOCRIterableDataset
-)
+from src.dataset.rustitw_ocr import load_rustitw_ocr, RusTitWOCRIterableDataset
 from src.dataset.openhermes_ru_text import (
     download_openhermes_ru_text,
     load_openhermes_ru_text,
-    OpenHermesRuIterableDataset
+    OpenHermesRuIterableDataset,
 )
+from src.dataset.mws_vision import (
+    download_mws_vision,
+    load_mws_vision,
+    MWSVisionIterableDataset,
+)
+
 
 class SupportedDatasets(Enum):
     LLAVA_PRETRAIN_RU = DatasetConfig(
@@ -94,18 +93,30 @@ class SupportedDatasets(Enum):
         requires_download=True,
     )
 
+    MWS_VISION = DatasetConfig(
+        name="MTSAIR/MWS-Vision-Bench",
+        total_samples=1302,
+        load_raw_func=load_mws_vision,
+        dataset_class=MWSVisionIterableDataset,
+        download_func=download_mws_vision,
+        requires_download=False,
+    )
+
 
 class MixedTorchIterableDataset(TorchIterableDataset):
     """
     Easy interleaving of multiple TorchIterableDatasets with support for probabilities and stopping_strategy.
     Works as fast as possible, without Arrow/HF overhead.
     """
+
     def __init__(
         self,
         datasets: List[TorchIterableDataset],
         probabilities: Optional[List[float]] = None,
         seed: int = 42,
-        stopping_strategy: Literal['first_exhausted', 'all_exhausted'] = 'all_exhausted',
+        stopping_strategy: Literal[
+            "first_exhausted", "all_exhausted"
+        ] = "all_exhausted",
     ):
         self.datasets = datasets
         self.probabilities = probabilities
@@ -126,7 +137,7 @@ class MixedTorchIterableDataset(TorchIterableDataset):
             try:
                 yield next(iters[idx])
             except StopIteration:
-                if self.stopping_strategy == 'first_exhausted':
+                if self.stopping_strategy == "first_exhausted":
                     return
                 del iters[idx]
                 if probs is not None:
@@ -134,12 +145,15 @@ class MixedTorchIterableDataset(TorchIterableDataset):
                 if not iters:
                     return
 
+
 def load_merged_dataset(
     dataset_specs: List[Dict[str, Any]],
     global_seed: int = 42,
     global_shuffle_buffer: int = 10000,
-    interleave_stopping_strategy: Literal['first_exhausted', 'all_exhausted']='all_exhausted',
-    interleave_balance_probabilities: bool = False
+    interleave_stopping_strategy: Literal[
+        "first_exhausted", "all_exhausted"
+    ] = "all_exhausted",
+    interleave_balance_probabilities: bool = False,
 ) -> MixedTorchIterableDataset:
     """
     Creates a single lazy streaming IterableDataset by mixing several datasets.
@@ -176,7 +190,9 @@ def load_merged_dataset(
         dataset_root: Optional[str] = spec.get("dataset_root")
 
         if config.load_raw_func is None or config.dataset_class is None:
-            raise ValueError(f"Dataset {config.name} is not fully configured for loading")
+            raise ValueError(
+                f"Dataset {config.name} is not fully configured for loading"
+            )
 
         # 1. Get raw HF iterable
         raw_ds = config.load_raw_func(
@@ -209,7 +225,9 @@ def load_merged_dataset(
         return custom_datasets[0]
 
     probabilities = None
-    if interleave_balance_probabilities and len(effective_sizes) == len(custom_datasets):
+    if interleave_balance_probabilities and len(effective_sizes) == len(
+        custom_datasets
+    ):
         total = sum(effective_sizes)
         if total > 0:
             probabilities = [size / total for size in effective_sizes]
