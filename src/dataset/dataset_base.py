@@ -3,20 +3,37 @@ from typing import Optional, Callable, Type
 
 from torch.utils.data import IterableDataset as TorchIterableDataset
 
+
 @dataclass
 class DatasetConfig:
     """Configuration for each Russian VLM dataset"""
+
     name: str
     total_samples: Optional[int]
-    
+
     # Core functions and classes
     load_raw_func: Callable  # function that returns raw HF iterable (streaming)
-    dataset_class: Type[TorchIterableDataset]  # class that converts raw -> {"image": PIL, "question": str, "answer": str}
+    dataset_class: Type[
+        TorchIterableDataset
+    ]  # class that converts raw -> {"image": PIL, "question": str, "answer": str}
     download_func: Optional[Callable] = None  # optional download function
-    
-    # Metadata
-    requires_download: bool = False   # True = needs manual download before use (local files required)
 
+    # Metadata
+    requires_download: bool = (
+        False  # True = needs manual download before use (local files required)
+    )
+
+
+CAPTIONING_QUESTION_TEMPLATES_EN = [
+    "Describe this image in detail.",
+    "Give a detailed description of this image.",
+    "What is shown in this image? Describe it in detail.",
+    "Describe everything visible in this image.",
+    "Tell me what you see in this picture.",
+    "Provide a comprehensive description of the scene.",
+    "Describe the image as accurately and thoroughly as possible.",
+    "What can you observe in this image?",
+]
 
 CAPTIONING_QUESTION_TEMPLATES = [
     "Опиши это изображение",

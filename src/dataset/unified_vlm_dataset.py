@@ -36,6 +36,16 @@ from src.dataset.mws_vision import (
     load_mws_vision,
     MWSVisionIterableDataset,
 )
+from src.dataset.pixmo_cap_en import (
+    download_pixmo_cap_en,
+    load_pixmo_cap_en,
+    PixMoCapEnIterableDataset,
+)
+from src.dataset.pixmo_ask_model_anything_en import (
+    download_pixmo_ask_model_anything_en,
+    load_pixmo_ask_model_anything_en,
+    PixMoAskModelAnythingEnIterableDataset,
+)
 
 
 class SupportedDatasets(Enum):
@@ -100,6 +110,24 @@ class SupportedDatasets(Enum):
         dataset_class=MWSVisionIterableDataset,
         download_func=download_mws_vision,
         requires_download=False,
+    )
+
+    PIXMO_CAP_EN = DatasetConfig(
+        name="dnth/pixmo-cap-images",
+        total_samples=46_000,
+        load_raw_func=load_pixmo_cap_en,
+        dataset_class=PixMoCapEnIterableDataset,
+        download_func=download_pixmo_cap_en,
+        requires_download=True,
+    )
+
+    PIXMO_ASK_MODEL_ANYTHING_EN = DatasetConfig(
+        name="dnth/pixmo-ask-model-anything-images",
+        total_samples=153_592,
+        load_raw_func=load_pixmo_ask_model_anything_en,
+        dataset_class=PixMoAskModelAnythingEnIterableDataset,
+        download_func=download_pixmo_ask_model_anything_en,
+        requires_download=True,
     )
 
 
