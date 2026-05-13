@@ -8,8 +8,10 @@ import torch.nn as nn
 from PIL import Image
 from safetensors import safe_open
 
+from transformers.activations import ACT2FN
 from transformers import (
     AutoConfig,
+    AutoImageProcessor,
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
     AutoProcessor,
@@ -229,6 +231,33 @@ def _load_qwen35_vision_module(
     )
     vision_tower.load_state_dict(vision_state, strict=True)
     del vision_state
+    vision_tower.to(device=device, dtype=dtype)
+    return vision_tower
+
+
+def _load_siglip_vision_module(
+    model_dir: str,
+    cfg,
+    device: torch.device,
+    dtype: torch.dtype,
+):
+    model_type = getattr(cfg, "model_type", None)
+    if model_type in {"siglip", "siglip_vision_model"}:
+        from transformers import SiglipVisionModel
+
+        vision_cls = SiglipVisionModel
+    elif model_type in {"siglip2", "siglip2_vision_model"}:
+        from transformers import Siglip2VisionModel
+
+        vision_cls = Siglip2VisionModel
+    else:
+        raise ValueError(f"Unsupported SigLIP model_type={model_type}")
+
+    vision_tower = vision_cls.from_pretrained(
+        model_dir,
+        dtype=dtype,
+        low_cpu_mem_usage=True,
+    )
     vision_tower.to(device=device, dtype=dtype)
     return vision_tower
 
@@ -552,6 +581,82 @@ def _module_device_dtype(module: nn.Module) -> tuple[torch.device, torch.dtype]:
     return param.device, param.dtype
 
 
+class VisualTokenExpert(nn.Module):
+    def __init__(self, hidden_size: int, intermediate_size: int, hidden_act: str, initializer_range: float):
+        super().__init__()
+        self.gate_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
+        self.up_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
+        self.down_proj = nn.Linear(intermediate_size, hidden_size, bias=False)
+        self.act_fn = ACT2FN[hidden_act]
+
+        nn.init.normal_(self.gate_proj.weight, mean=0.0, std=initializer_range)
+        nn.init.normal_(self.up_proj.weight, mean=0.0, std=initializer_range)
+        nn.init.zeros_(self.down_proj.weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+
+
+class VLExpertMLPWrapper(nn.Module):
+    def __init__(self, base_mlp: nn.Module, config: Any):
+        super().__init__()
+        self.base_mlp = base_mlp
+        hidden_size = getattr(config, "hidden_size")
+        intermediate_size = getattr(config, "moe_intermediate_size", None)
+        if intermediate_size is None:
+            intermediate_size = getattr(base_mlp, "intermediate_size", None)
+        if intermediate_size is None:
+            intermediate_size = getattr(config, "intermediate_size")
+        self.visual_expert = VisualTokenExpert(
+            hidden_size=hidden_size,
+            intermediate_size=intermediate_size,
+            hidden_act=getattr(config, "hidden_act", "silu"),
+            initializer_range=getattr(config, "initializer_range", 0.02),
+        )
+        self.visual_token_mask: Optional[torch.Tensor] = None
+
+    def _resolve_mask(self, hidden_states: torch.Tensor) -> Optional[torch.Tensor]:
+        if self.visual_token_mask is None:
+            return None
+
+        expected_shape = hidden_states.shape[:-1]
+        mask = self.visual_token_mask
+        if tuple(mask.shape) == tuple(expected_shape):
+            return mask.to(device=hidden_states.device, dtype=torch.bool)
+
+        if mask.numel() == hidden_states.numel() // hidden_states.size(-1):
+            return mask.reshape(expected_shape).to(device=hidden_states.device, dtype=torch.bool)
+
+        return None
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        base_out = self.base_mlp(hidden_states)
+        mask = self._resolve_mask(hidden_states)
+        if mask is None or not torch.any(mask):
+            return base_out
+
+        flat_mask = mask.reshape(-1)
+        flat_hidden = hidden_states.reshape(-1, hidden_states.size(-1))
+        token_indices = flat_mask.nonzero(as_tuple=False).flatten()
+        selected_hidden = flat_hidden.index_select(0, token_indices)
+
+        expert_device, expert_dtype = _module_device_dtype(self.visual_expert)
+        selected_hidden = selected_hidden.to(device=expert_device, dtype=expert_dtype)
+        selected_delta = self.visual_expert(selected_hidden).to(
+            device=base_out.device,
+            dtype=base_out.dtype,
+        )
+
+        flat_delta = torch.zeros(
+            flat_hidden.size(0),
+            flat_hidden.size(1),
+            device=base_out.device,
+            dtype=base_out.dtype,
+        )
+        flat_delta.index_copy_(0, token_indices.to(base_out.device), selected_delta)
+        return base_out + flat_delta.reshape_as(base_out)
+
+
 class MLPProjector(nn.Module):
     def __init__(self, vision_dim: int, llm_dim: int):
         super().__init__()
@@ -672,6 +777,118 @@ def _resolve_checkpoint_sidecar_path(
     return None
 
 
+def _resolve_lora_layers_to_transform(
+    num_hidden_layers: Optional[int],
+    num_lora_layers: int,
+) -> Optional[List[int]]:
+    if num_lora_layers == -1:
+        return None
+
+    if num_hidden_layers is None:
+        raise RuntimeError(
+            "Could not infer `num_hidden_layers` from the base LLM config, "
+            "so LoRA layer restriction is unavailable."
+        )
+
+    if num_lora_layers < 1:
+        raise ValueError(
+            f"num_lora_layers must be -1 or >= 1, got {num_lora_layers}"
+        )
+
+    if num_lora_layers > num_hidden_layers:
+        raise ValueError(
+            f"num_lora_layers={num_lora_layers} exceeds num_hidden_layers={num_hidden_layers}"
+        )
+
+    return list(range(num_lora_layers))
+
+
+def _resolve_lora_target_modules(
+    model: nn.Module,
+    num_lora_layers: int,
+    exclude_substrings: Optional[List[str]] = None,
+) -> Any:
+    exclude_substrings = exclude_substrings or []
+
+    if num_lora_layers == -1 and not exclude_substrings:
+        return "all-linear"
+
+    try:
+        from transformers.pytorch_utils import Conv1D
+        linear_classes = (nn.Linear, Conv1D)
+    except Exception:
+        linear_classes = (nn.Linear,)
+
+    linear_module_names = set()
+    for name, module in model.named_modules():
+        if any(excluded in name for excluded in exclude_substrings):
+            continue
+        if isinstance(module, linear_classes):
+            linear_module_names.add(name)
+
+    if hasattr(model, "get_output_embeddings"):
+        try:
+            output_emb = model.get_output_embeddings()
+        except Exception:
+            output_emb = None
+        if output_emb is not None:
+            for name, module in model.named_modules():
+                if module is output_emb:
+                    linear_module_names.discard(name)
+                    break
+
+    if not linear_module_names:
+        raise RuntimeError("Could not resolve any linear target modules for LoRA.")
+
+    return linear_module_names
+
+
+def _resolve_llm_decoder_layers(model: nn.Module) -> nn.ModuleList:
+    candidates = []
+    if hasattr(model, "get_base_model"):
+        try:
+            candidates.append(model.get_base_model())
+        except Exception:
+            pass
+    candidates.append(model)
+    base_model = getattr(model, "base_model", None)
+    if base_model is not None:
+        candidates.append(base_model)
+        nested = getattr(base_model, "model", None)
+        if nested is not None:
+            candidates.append(nested)
+
+    for candidate in candidates:
+        for path in ["model.layers", "layers"]:
+            try:
+                layers = _get_by_path(candidate, path)
+            except AttributeError:
+                continue
+            if isinstance(layers, nn.ModuleList):
+                return layers
+
+    raise RuntimeError("Could not locate decoder layers in the LLM.")
+
+
+def _resolve_vl_expert_layer_indices(
+    num_hidden_layers: Optional[int],
+    num_lora_layers: int,
+) -> List[int]:
+    if num_hidden_layers is None:
+        raise RuntimeError(
+            "Could not infer `num_hidden_layers` from the base LLM config, "
+            "so VL expert layer selection is unavailable."
+        )
+
+    if num_lora_layers == -1:
+        return list(range(num_hidden_layers))
+
+    return _resolve_lora_layers_to_transform(
+        num_hidden_layers=num_hidden_layers,
+        num_lora_layers=num_lora_layers,
+    ) or []
+
+
 class GigaChatVL(nn.Module):
     def __init__(
         self,
@@ -683,16 +900,22 @@ class GigaChatVL(nn.Module):
         lora_r: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
+        num_lora_layers: int = -1,
         lora_path: Optional[str] = None,
         projector_path: Optional[str] = None,
         projector_type: str = "qformer",
         projector_num_queries: int = 32,
+        enable_vl_experts: bool = False,
+        vl_experts_path: Optional[str] = None,
     ):
         super().__init__()
 
         self.llm_name = llm_name
         self.freeze_vision = freeze_vision
         self.vision_name = vision_name
+        self.num_lora_layers = num_lora_layers
+        self.enable_vl_experts = enable_vl_experts or vl_experts_path is not None
+        self.vl_expert_layer_indices: List[int] = []
         self.quantization_method = None
         self.is_loaded_in_4bit = False
         self.hf_device_map = {}
@@ -784,6 +1007,11 @@ class GigaChatVL(nn.Module):
                 for param in self.llm.parameters():
                     param.requires_grad = False
 
+        self.llm_hidden_size = self.llm.config.hidden_size
+
+        if self.enable_vl_experts:
+            self._install_vl_experts()
+
         if lora_path is not None:
             self.llm = PeftModel.from_pretrained(
                 self.llm,
@@ -791,16 +1019,31 @@ class GigaChatVL(nn.Module):
                 is_trainable=False,
             )
         else:
+            layers_to_transform = _resolve_lora_layers_to_transform(
+                getattr(self.llm.config, "num_hidden_layers", None),
+                num_lora_layers=self.num_lora_layers,
+            )
+            target_modules = _resolve_lora_target_modules(
+                self.llm,
+                num_lora_layers=self.num_lora_layers,
+                exclude_substrings=[".visual_expert."] if self.enable_vl_experts else None,
+            )
             lora_cfg = LoraConfig(
                 task_type="CAUSAL_LM",
                 r=lora_r,
                 lora_alpha=lora_alpha,
                 lora_dropout=lora_dropout,
                 bias="none",
-                target_modules="all-linear",
+                target_modules=target_modules,
+                layers_to_transform=layers_to_transform,
+                layers_pattern="layers",
             )
             self.llm = get_peft_model(self.llm, lora_cfg)
-        self.llm_hidden_size = self.llm.config.hidden_size
+
+        if vl_experts_path is not None:
+            if not self.enable_vl_experts:
+                raise RuntimeError("vl_experts_path was provided but VL experts are disabled.")
+            self.load_vl_experts(vl_experts_path)
 
         # Vision side
         self.vision_processor = None
@@ -880,12 +1123,112 @@ class GigaChatVL(nn.Module):
                     f"current_vision_name={vision_name}"
                 ) from e
 
+    def _install_vl_experts(self) -> None:
+        layers = _resolve_llm_decoder_layers(self.llm)
+        layer_indices = _resolve_vl_expert_layer_indices(
+            num_hidden_layers=len(layers),
+            num_lora_layers=self.num_lora_layers,
+        )
+
+        expert_device, expert_dtype = _module_device_dtype(self.llm.get_input_embeddings())
+        installed_indices = []
+
+        for layer_idx in layer_indices:
+            layer = layers[layer_idx]
+            if not hasattr(layer, "mlp"):
+                raise RuntimeError(f"Layer {layer_idx} does not expose an `mlp` module.")
+
+            if isinstance(layer.mlp, VLExpertMLPWrapper):
+                wrapper = layer.mlp
+            else:
+                wrapper = VLExpertMLPWrapper(layer.mlp, self.llm.config)
+                wrapper.visual_expert.to(device=expert_device, dtype=expert_dtype)
+                layer.mlp = wrapper
+
+            installed_indices.append(layer_idx)
+
+        self.vl_expert_layer_indices = installed_indices
+
+    def _iter_vl_expert_wrappers(self):
+        if not self.enable_vl_experts:
+            return
+
+        layers = _resolve_llm_decoder_layers(self.llm)
+        for layer_idx in self.vl_expert_layer_indices:
+            mlp = layers[layer_idx].mlp
+            if not isinstance(mlp, VLExpertMLPWrapper):
+                raise RuntimeError(
+                    f"Expected layer {layer_idx} to contain a VLExpertMLPWrapper."
+                )
+            yield layer_idx, mlp
+
+    def _set_vl_expert_visual_token_mask(
+        self,
+        visual_token_mask: Optional[torch.Tensor],
+    ) -> None:
+        if not self.enable_vl_experts:
+            return
+
+        if visual_token_mask is not None:
+            visual_token_mask = visual_token_mask.detach().to(dtype=torch.bool)
+            if not torch.any(visual_token_mask):
+                visual_token_mask = None
+
+        for _, wrapper in self._iter_vl_expert_wrappers():
+            wrapper.visual_token_mask = visual_token_mask
+
+    def vl_experts_state_dict(self) -> Dict[str, torch.Tensor]:
+        if not self.enable_vl_experts:
+            return {}
+
+        state_dict: Dict[str, torch.Tensor] = {}
+        for layer_idx, wrapper in self._iter_vl_expert_wrappers():
+            for key, value in wrapper.visual_expert.state_dict().items():
+                state_dict[f"layers.{layer_idx}.visual_expert.{key}"] = value.detach().cpu()
+        return state_dict
+
+    def save_vl_experts(self, path: str) -> None:
+        if not self.enable_vl_experts:
+            raise RuntimeError("VL experts are disabled; nothing to save.")
+
+        torch.save(
+            {
+                "layers": self.vl_expert_layer_indices,
+                "state_dict": self.vl_experts_state_dict(),
+            },
+            path,
+        )
+
+    def load_vl_experts(self, path: str) -> None:
+        if not self.enable_vl_experts:
+            raise RuntimeError("Enable VL experts before loading VL expert weights.")
+
+        payload = torch.load(path, map_location="cpu")
+        if isinstance(payload, dict) and "state_dict" in payload:
+            state_dict = payload["state_dict"]
+        else:
+            state_dict = payload
+
+        for layer_idx, wrapper in self._iter_vl_expert_wrappers():
+            prefix = f"layers.{layer_idx}.visual_expert."
+            layer_state = {
+                key[len(prefix) :]: value
+                for key, value in state_dict.items()
+                if key.startswith(prefix)
+            }
+            if not layer_state:
+                raise KeyError(f"No VL expert weights found for layer {layer_idx}.")
+            wrapper.visual_expert.load_state_dict(layer_state, strict=True)
+
     def build_vlm_meta(self) -> Dict[str, Any]:
         return {
             "image_token": IMAGE_TOKEN,
             "image_token_id": self.image_token_id,
             "llm_name": self.llm_name,
             "llm_hidden_size": self.llm_hidden_size,
+            "num_lora_layers": self.num_lora_layers,
+            "enable_vl_experts": self.enable_vl_experts,
+            "vl_expert_layers": self.vl_expert_layer_indices,
             "projector_type": getattr(self, "projector_type", None),
             "projector_num_queries": getattr(self.projector, "num_queries", None),
             "vision_hidden_size": self.vision_hidden_size,
@@ -923,8 +1266,10 @@ class GigaChatVL(nn.Module):
         lora_r: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
+        num_lora_layers: Optional[int] = None,
         projector_type: Optional[str] = None,
         projector_num_queries: Optional[int] = None,
+        enable_vl_experts: Optional[bool] = None,
     ) -> "GigaChatVL":
         checkpoint_path = Path(checkpoint_dir)
         if not checkpoint_path.exists():
@@ -942,16 +1287,23 @@ class GigaChatVL(nn.Module):
             checkpoint_path,
             "vision_processor",
         )
+        vl_experts_path = _resolve_checkpoint_sidecar_path(checkpoint_path, "vl_experts.pt")
 
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         resolved_llm_name = llm_name or meta.get("llm_name")
         resolved_vision_name = vision_name or meta.get("vision_name")
         resolved_projector_type = projector_type or meta.get("projector_type") or "qformer"
+        resolved_num_lora_layers = num_lora_layers
+        if resolved_num_lora_layers is None:
+            resolved_num_lora_layers = meta.get("num_lora_layers", -1)
         resolved_projector_num_queries = projector_num_queries
         if resolved_projector_num_queries is None:
             resolved_projector_num_queries = meta.get("projector_num_queries")
         if resolved_projector_num_queries is None:
             resolved_projector_num_queries = 32
+        resolved_enable_vl_experts = enable_vl_experts
+        if resolved_enable_vl_experts is None:
+            resolved_enable_vl_experts = bool(meta.get("enable_vl_experts", False))
 
         if resolved_llm_name is None:
             raise RuntimeError(
@@ -971,8 +1323,15 @@ class GigaChatVL(nn.Module):
             lora_r=lora_r,
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
+            num_lora_layers=int(resolved_num_lora_layers),
             projector_type=resolved_projector_type,
             projector_num_queries=int(resolved_projector_num_queries),
+            enable_vl_experts=bool(resolved_enable_vl_experts),
+            vl_experts_path=(
+                str(vl_experts_path)
+                if bool(resolved_enable_vl_experts) and vl_experts_path is not None
+                else None
+            ),
         )
 
         if vision_processor_dir is not None:
@@ -1122,6 +1481,26 @@ class GigaChatVL(nn.Module):
                 self.vision_projector.requires_grad_(not self.freeze_vision)
             return
 
+        # SigLIP / SigLIP2
+        if model_type in {"siglip", "siglip_vision_model", "siglip2", "siglip2_vision_model"}:
+            self.vision_backend = "siglip2" if model_type.startswith("siglip2") else "siglip"
+            try:
+                self.vision_processor = AutoProcessor.from_pretrained(vision_name)
+            except Exception:
+                self.vision_processor = AutoImageProcessor.from_pretrained(vision_name)
+            self.vision_source_model = None
+            self.vision_tower = _load_siglip_vision_module(
+                model_dir=vision_name,
+                cfg=cfg,
+                device=vision_device,
+                dtype=vision_dtype,
+            )
+
+            vision_config = getattr(cfg, "vision_config", cfg)
+            self.vision_hidden_size = getattr(vision_config, "hidden_size")
+            self.vision_tower.requires_grad_(not self.freeze_vision)
+            return
+
         # Gemma4
         if model_type == "gemma4":
             self.vision_backend = "gemma4"
@@ -1212,7 +1591,8 @@ class GigaChatVL(nn.Module):
 
         raise ValueError(
             f"Unsupported vision backend: {vision_name} (model_type={model_type}). "
-            "Supported: qwen2_5_vl, qwen3_vl, qwen3_5, qwen3_5_vl, gemma4."
+            "Supported: qwen2_5_vl, qwen3_vl, qwen3_5, qwen3_5_vl, "
+            "siglip, siglip2, gemma4."
         )
 
     def prepare_vision_inputs(self, images: List[Any]) -> Dict[str, torch.Tensor]:
@@ -1252,6 +1632,27 @@ class GigaChatVL(nn.Module):
                 "vision_pixel_values": torch.stack(padded_pixel_values, dim=0),
                 "vision_image_grid_thw": torch.cat(grid_parts, dim=0),
             }
+
+        # SigLIP / SigLIP2
+        if self.vision_backend in {"siglip", "siglip2"}:
+            for image in images:
+                if not isinstance(image, Image.Image):
+                    raise TypeError(
+                        f"SigLIP vision backend expects PIL images in collator, got {type(image)}"
+                    )
+
+            try:
+                batch = self.vision_processor(
+                    images=images,
+                    return_tensors="pt",
+                    padding=True,
+                )
+            except TypeError:
+                batch = self.vision_processor(
+                    images=images,
+                    return_tensors="pt",
+                )
+            return {f"vision_{k}": v for k, v in batch.items()}
 
         # Gemma4
         if self.vision_backend == "gemma4":
@@ -1444,6 +1845,72 @@ class GigaChatVL(nn.Module):
             out.append(y)
         return out
 
+    def _encode_images_siglip(
+        self,
+        vision_inputs: Dict[str, torch.Tensor],
+    ) -> List[torch.Tensor]:
+        if self.vision_tower is None:
+            raise RuntimeError("SigLIP backend requires a vision_tower.")
+
+        src_device = next(self.vision_tower.parameters()).device
+        src_dtype = next(self.vision_tower.parameters()).dtype
+
+        prepared = {}
+        for k, v in vision_inputs.items():
+            base_key = k.replace("vision_", "", 1)
+            prepared[base_key] = _maybe_tensor_to(v, src_device, src_dtype)
+
+        if "pixel_values" not in prepared:
+            raise RuntimeError("SigLIP backend expects pixel_values from the processor.")
+
+        forward_kwargs = {"pixel_values": prepared["pixel_values"]}
+        if self.vision_backend == "siglip2":
+            if "pixel_attention_mask" not in prepared or "spatial_shapes" not in prepared:
+                raise RuntimeError(
+                    "SigLIP2 backend expects pixel_attention_mask and spatial_shapes "
+                    "from the processor."
+                )
+            forward_kwargs["pixel_attention_mask"] = prepared["pixel_attention_mask"]
+            forward_kwargs["spatial_shapes"] = prepared["spatial_shapes"]
+
+        ctx = torch.no_grad() if self.freeze_vision else nullcontext()
+        with ctx:
+            vision_outputs = self.vision_tower(**forward_kwargs)
+
+        image_hidden_states = vision_outputs.last_hidden_state
+        if image_hidden_states.dim() != 3:
+            raise RuntimeError(
+                f"Unexpected SigLIP hidden state shape: {tuple(image_hidden_states.shape)}"
+            )
+
+        attention_mask = prepared.get("pixel_attention_mask")
+        chunks = []
+        for i in range(image_hidden_states.size(0)):
+            x = image_hidden_states[i]
+            if (
+                attention_mask is not None
+                and attention_mask.dim() == 2
+                and attention_mask.size(1) == x.size(0)
+            ):
+                x = x[attention_mask[i].to(device=x.device, dtype=torch.bool)]
+            chunks.append(x)
+
+        out = []
+        projector_device, projector_dtype = _module_device_dtype(self.projector)
+        for x in chunks:
+            y = self.projector(
+                x.to(
+                    device=projector_device,
+                    dtype=projector_dtype,
+                )
+            )
+            y = y.to(
+                device=self.llm.get_input_embeddings().weight.device,
+                dtype=self.llm.get_input_embeddings().weight.dtype,
+            )
+            out.append(y)
+        return out
+
     def _encode_images_gemma4(
         self,
         vision_inputs: Dict[str, torch.Tensor],
@@ -1566,6 +2033,14 @@ class GigaChatVL(nn.Module):
                 vision_image_grid_thw=vision_image_grid_thw,
             )
 
+        if self.vision_backend in {"siglip", "siglip2"}:
+            siglip_inputs = dict(vision_kwargs)
+            if vision_pixel_values is not None:
+                siglip_inputs["vision_pixel_values"] = vision_pixel_values
+            if vision_image_grid_thw is not None:
+                siglip_inputs["vision_image_grid_thw"] = vision_image_grid_thw
+            return self._encode_images_siglip(siglip_inputs)
+
         if self.vision_backend == "gemma4":
             gemma_inputs = dict(vision_kwargs)
             if vision_pixel_values is not None:
@@ -1605,7 +2080,7 @@ class GigaChatVL(nn.Module):
         embeds_i: torch.Tensor,
         labels_i: Optional[torch.Tensor],
         sample_image_features: List[torch.Tensor],
-    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
         image_positions = (ids_i == self.image_token_id).nonzero(as_tuple=False).flatten()
         num_images = len(sample_image_features)
 
@@ -1616,16 +2091,29 @@ class GigaChatVL(nn.Module):
             )
 
         if num_images == 0:
-            return ids_i, embeds_i, labels_i
+            visual_token_mask = torch.zeros(
+                ids_i.size(0),
+                dtype=torch.bool,
+                device=ids_i.device,
+            )
+            return ids_i, embeds_i, labels_i, visual_token_mask
 
         merged_ids_parts = []
         merged_embed_parts = []
         merged_label_parts = [] if labels_i is not None else None
+        merged_visual_mask_parts = []
         cursor = 0
 
         for pos, img_feats in zip(image_positions.tolist(), sample_image_features):
             merged_ids_parts.append(ids_i[cursor:pos])
             merged_embed_parts.append(embeds_i[cursor:pos])
+            merged_visual_mask_parts.append(
+                torch.zeros(
+                    pos - cursor,
+                    dtype=torch.bool,
+                    device=ids_i.device,
+                )
+            )
             if merged_label_parts is not None:
                 merged_label_parts.append(labels_i[cursor:pos])
 
@@ -1638,6 +2126,13 @@ class GigaChatVL(nn.Module):
                 )
             )
             merged_embed_parts.append(img_feats)
+            merged_visual_mask_parts.append(
+                torch.ones(
+                    img_feats.size(0),
+                    dtype=torch.bool,
+                    device=ids_i.device,
+                )
+            )
             if merged_label_parts is not None:
                 merged_label_parts.append(
                     torch.full(
@@ -1651,6 +2146,13 @@ class GigaChatVL(nn.Module):
 
         merged_ids_parts.append(ids_i[cursor:])
         merged_embed_parts.append(embeds_i[cursor:])
+        merged_visual_mask_parts.append(
+            torch.zeros(
+                ids_i.size(0) - cursor,
+                dtype=torch.bool,
+                device=ids_i.device,
+            )
+        )
         if merged_label_parts is not None:
             merged_label_parts.append(labels_i[cursor:])
 
@@ -1659,7 +2161,8 @@ class GigaChatVL(nn.Module):
         merged_labels = (
             torch.cat(merged_label_parts, dim=0) if merged_label_parts is not None else None
         )
-        return merged_ids, merged_embeds, merged_labels
+        visual_token_mask = torch.cat(merged_visual_mask_parts, dim=0)
+        return merged_ids, merged_embeds, merged_labels, visual_token_mask
 
     def _merge_text_and_image(
         self,
@@ -1674,6 +2177,7 @@ class GigaChatVL(nn.Module):
         batch_embeds = []
         batch_masks = []
         batch_labels = []
+        batch_visual_masks = []
         max_len = 0
 
         for i in range(input_ids.size(0)):
@@ -1682,7 +2186,7 @@ class GigaChatVL(nn.Module):
             ids_i = input_ids[i, :seq_len_i]
             embeds_i = base_embeds[i, :seq_len_i]
             labels_i = labels[i, :seq_len_i] if labels is not None else None
-            _, merged_embeds, merged_labels = self._merge_single_sample_text_and_images(
+            _, merged_embeds, merged_labels, visual_token_mask = self._merge_single_sample_text_and_images(
                 ids_i=ids_i,
                 embeds_i=embeds_i,
                 labels_i=labels_i,
@@ -1698,17 +2202,24 @@ class GigaChatVL(nn.Module):
             batch_embeds.append(merged_embeds)
             batch_masks.append(merged_mask)
             batch_labels.append(merged_labels)
+            batch_visual_masks.append(visual_token_mask)
             max_len = max(max_len, merged_embeds.size(0))
 
         padded_embeds = []
         padded_masks = []
         padded_labels = []
+        padded_visual_masks = []
 
         hidden_size = batch_embeds[0].size(-1)
         embed_dtype = batch_embeds[0].dtype
         embed_device = batch_embeds[0].device
 
-        for embeds_i, mask_i, labels_i in zip(batch_embeds, batch_masks, batch_labels):
+        for embeds_i, mask_i, labels_i, visual_mask_i in zip(
+            batch_embeds,
+            batch_masks,
+            batch_labels,
+            batch_visual_masks,
+        ):
             pad_len = max_len - embeds_i.size(0)
 
             if pad_len > 0:
@@ -1726,6 +2237,12 @@ class GigaChatVL(nn.Module):
 
                 embeds_i = torch.cat([embeds_i, pad_embeds], dim=0)
                 mask_i = torch.cat([mask_i, pad_mask], dim=0)
+                visual_pad_mask = torch.zeros(
+                    pad_len,
+                    dtype=torch.bool,
+                    device=visual_mask_i.device,
+                )
+                visual_mask_i = torch.cat([visual_mask_i, visual_pad_mask], dim=0)
 
                 if labels_i is not None:
                     pad_labels = torch.full(
@@ -1739,16 +2256,18 @@ class GigaChatVL(nn.Module):
             padded_embeds.append(embeds_i)
             padded_masks.append(mask_i)
             padded_labels.append(labels_i)
+            padded_visual_masks.append(visual_mask_i)
 
         inputs_embeds = torch.stack(padded_embeds, dim=0)
         attention_mask = torch.stack(padded_masks, dim=0)
+        visual_token_mask = torch.stack(padded_visual_masks, dim=0)
 
         if labels is not None:
             labels = torch.stack(padded_labels, dim=0)
         else:
             labels = None
 
-        return inputs_embeds, attention_mask, labels
+        return inputs_embeds, attention_mask, labels, visual_token_mask
 
     def _build_generation_inputs(
         self,
@@ -1802,7 +2321,7 @@ class GigaChatVL(nn.Module):
 
         embed_tokens = self.llm.get_input_embeddings()
         base_embeds = embed_tokens(input_ids)
-        expanded_input_ids, merged_embeds, _ = self._merge_single_sample_text_and_images(
+        expanded_input_ids, merged_embeds, _, visual_token_mask = self._merge_single_sample_text_and_images(
             ids_i=input_ids[0],
             embeds_i=base_embeds[0],
             labels_i=None,
@@ -1821,6 +2340,7 @@ class GigaChatVL(nn.Module):
             "input_ids": expanded_input_ids,
             "inputs_embeds": inputs_embeds,
             "attention_mask": attention_mask,
+            "visual_token_mask": visual_token_mask.unsqueeze(0),
             "prompt_length": expanded_input_ids.size(1),
         }
 
@@ -1895,6 +2415,7 @@ class GigaChatVL(nn.Module):
 
         total_num_images = sum(num_images_per_sample)
         if total_num_images == 0:
+            self._set_vl_expert_visual_token_mask(None)
             return self.llm(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -1912,6 +2433,8 @@ class GigaChatVL(nn.Module):
                 vision_pixel_values=vision_pixel_values,
                 vision_image_grid_thw=vision_image_grid_thw,
             )
+        elif self.vision_backend in {"siglip", "siglip2"}:
+            flat_image_features = self.encode_images(**vision_kwargs)
         elif self.vision_backend == "gemma4":
             flat_image_features = self.encode_images(**vision_kwargs)
         else:
@@ -1922,13 +2445,14 @@ class GigaChatVL(nn.Module):
             num_images_per_sample=num_images_per_sample,
         )
 
-        inputs_embeds, attention_mask, labels = self._merge_text_and_image(
+        inputs_embeds, attention_mask, labels, visual_token_mask = self._merge_text_and_image(
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels,
             image_features_per_sample=image_features_per_sample,
         )
 
+        self._set_vl_expert_visual_token_mask(visual_token_mask)
         return self.llm(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
@@ -1947,13 +2471,16 @@ class GigaChatVLForInference(GigaChatVL):
         lora_r: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
+        num_lora_layers: Optional[int] = None,
         projector_type: Optional[str] = None,
         projector_num_queries: Optional[int] = None,
+        enable_vl_experts: Optional[bool] = None,
     ):
         checkpoint_path = Path(checkpoint_dir)
         meta_path = checkpoint_path / "vlm_meta.json"
         lora_dir = checkpoint_path / "llm_lora"
         projector_path = checkpoint_path / "projector.pt"
+        vl_experts_path = checkpoint_path / "vl_experts.pt"
         tokenizer_dir = checkpoint_path / "tokenizer"
         vision_processor_dir = checkpoint_path / "vision_processor"
 
@@ -1989,6 +2516,16 @@ class GigaChatVLForInference(GigaChatVL):
             resolved_projector_num_queries = int(projector_state["query_tokens"].shape[1])
         if resolved_projector_num_queries is None:
             resolved_projector_num_queries = 32
+        resolved_num_lora_layers = num_lora_layers
+        if resolved_num_lora_layers is None:
+            resolved_num_lora_layers = meta.get("num_lora_layers", -1)
+        resolved_enable_vl_experts = enable_vl_experts
+        if resolved_enable_vl_experts is None:
+            resolved_enable_vl_experts = bool(
+                meta.get("enable_vl_experts", False) or vl_experts_path.exists()
+            )
+        if resolved_enable_vl_experts and not vl_experts_path.exists():
+            raise FileNotFoundError(f"Missing VL expert weights: {vl_experts_path}")
 
         if resolved_llm_name is None:
             raise RuntimeError(
@@ -2017,10 +2554,15 @@ class GigaChatVLForInference(GigaChatVL):
             lora_r=lora_r,
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
+            num_lora_layers=int(resolved_num_lora_layers),
             lora_path=str(lora_dir),
             projector_path=str(projector_path) if projector_path.exists() else None,
             projector_type=resolved_projector_type,
             projector_num_queries=int(resolved_projector_num_queries),
+            enable_vl_experts=bool(resolved_enable_vl_experts),
+            vl_experts_path=(
+                str(vl_experts_path) if bool(resolved_enable_vl_experts) else None
+            ),
         )
 
         if vision_processor_dir.exists():
@@ -2037,8 +2579,10 @@ class GigaChatVLForInference(GigaChatVL):
         do_sample: bool = False,
         temperature: float = 1.0,
         top_p: float = 1.0,
+        repetition_penalty: float = 1.0,
     ) -> str:
         prepared = self._build_generation_inputs(text=text, image=image)
+        self._set_vl_expert_visual_token_mask(prepared.get("visual_token_mask"))
 
         device = self.llm.get_input_embeddings().weight.device
         attention_mask = prepared["attention_mask"].to(device)
@@ -2049,6 +2593,7 @@ class GigaChatVLForInference(GigaChatVL):
             "use_cache": True,
             "pad_token_id": self.tokenizer.pad_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
+            "repetition_penalty": repetition_penalty,
         }
         if do_sample:
             generation_kwargs["temperature"] = temperature
