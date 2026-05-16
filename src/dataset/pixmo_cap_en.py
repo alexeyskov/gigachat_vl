@@ -85,7 +85,7 @@ def download_pixmo_cap_en(
 def load_pixmo_cap_en(
     config: Optional[DatasetConfig] = None,
     limit: Optional[int] = None,
-    shuffle_buffer: int = 10000,
+    shuffle_buffer: int = 1000,
     seed: int = 42,
     dataset_root: Optional[str] = None,
 ) -> HFDataset:

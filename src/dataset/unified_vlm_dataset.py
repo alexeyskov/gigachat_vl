@@ -46,6 +46,18 @@ from src.dataset.pixmo_ask_model_anything_en import (
     load_pixmo_ask_model_anything_en,
     PixMoAskModelAnythingEnIterableDataset,
 )
+from src.dataset.docvqa_en import (
+    download_docvqa_en,
+    load_docvqa_en,
+    load_infographicvqa_en,
+    DocVQAEnIterableDataset,
+    InfographicVQAEnIterableDataset,
+)
+from src.dataset.chartqa_en import (
+    download_chartqa_en,
+    load_chartqa_en,
+    ChartQAEnIterableDataset,
+)
 
 
 class SupportedDatasets(Enum):
@@ -130,6 +142,35 @@ class SupportedDatasets(Enum):
         requires_download=True,
     )
 
+    # DocVQA and InfographicVQA are downloaded together by download_docvqa_en(...)
+    # and share the same dataset_root. They are loaded as separate datasets because
+    # their parquet schemas are different.
+    DOCVQA_EN = DatasetConfig(
+        name="lmms-lab/DocVQA/DocVQA",
+        total_samples=10_500,
+        load_raw_func=load_docvqa_en,
+        dataset_class=DocVQAEnIterableDataset,
+        download_func=download_docvqa_en,
+        requires_download=True,
+    )
+    INFOGRAPHICVQA_EN = DatasetConfig(
+        name="lmms-lab/DocVQA/InfographicVQA",
+        total_samples=6_090,
+        load_raw_func=load_infographicvqa_en,
+        dataset_class=InfographicVQAEnIterableDataset,
+        download_func=download_docvqa_en,
+        requires_download=True,
+    )
+
+    CHARTQA_EN = DatasetConfig(
+        name="lmms-lab/ChartQA",
+        total_samples=2_500,
+        load_raw_func=load_chartqa_en,
+        dataset_class=ChartQAEnIterableDataset,
+        download_func=download_chartqa_en,
+        requires_download=True,
+    )
+
 
 class MixedTorchIterableDataset(TorchIterableDataset):
     """
@@ -177,7 +218,7 @@ class MixedTorchIterableDataset(TorchIterableDataset):
 def load_merged_dataset(
     dataset_specs: List[Dict[str, Any]],
     global_seed: int = 42,
-    global_shuffle_buffer: int = 10000,
+    global_shuffle_buffer: int = 100,
     interleave_stopping_strategy: Literal[
         "first_exhausted", "all_exhausted"
     ] = "all_exhausted",
