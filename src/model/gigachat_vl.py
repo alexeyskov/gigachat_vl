@@ -873,12 +873,28 @@ def _resolve_llm_decoder_layers(model: nn.Module) -> nn.ModuleList:
 def _resolve_vl_expert_layer_indices(
     num_hidden_layers: Optional[int],
     num_lora_layers: int,
+    vl_expert_layers: Optional[List[int]] = None,
 ) -> List[int]:
     if num_hidden_layers is None:
         raise RuntimeError(
             "Could not infer `num_hidden_layers` from the base LLM config, "
             "so VL expert layer selection is unavailable."
         )
+
+    if vl_expert_layers is not None:
+        normalized_layers = []
+        seen_layers = set()
+        for layer_idx in vl_expert_layers:
+            layer_idx = int(layer_idx)
+            if layer_idx < 0 or layer_idx >= num_hidden_layers:
+                raise ValueError(
+                    f"VL expert layer index {layer_idx} is out of range for "
+                    f"num_hidden_layers={num_hidden_layers}."
+                )
+            if layer_idx not in seen_layers:
+                normalized_layers.append(layer_idx)
+                seen_layers.add(layer_idx)
+        return normalized_layers
 
     if num_lora_layers == -1:
         return list(range(num_hidden_layers))
@@ -906,6 +922,7 @@ class GigaChatVL(nn.Module):
         projector_type: str = "qformer",
         projector_num_queries: int = 32,
         enable_vl_experts: bool = False,
+        vl_expert_layers: Optional[List[int]] = None,
         vl_experts_path: Optional[str] = None,
     ):
         super().__init__()
@@ -914,6 +931,7 @@ class GigaChatVL(nn.Module):
         self.freeze_vision = freeze_vision
         self.vision_name = vision_name
         self.num_lora_layers = num_lora_layers
+        self.vl_expert_layers = vl_expert_layers
         self.enable_vl_experts = enable_vl_experts or vl_experts_path is not None
         self.vl_expert_layer_indices: List[int] = []
         self.quantization_method = None
@@ -1018,6 +1036,7 @@ class GigaChatVL(nn.Module):
                 lora_path,
                 is_trainable=False,
             )
+            self._set_vl_experts_trainable(False)
         else:
             layers_to_transform = _resolve_lora_layers_to_transform(
                 getattr(self.llm.config, "num_hidden_layers", None),
@@ -1039,6 +1058,7 @@ class GigaChatVL(nn.Module):
                 layers_pattern="layers",
             )
             self.llm = get_peft_model(self.llm, lora_cfg)
+            self._set_vl_experts_trainable(True)
 
         if vl_experts_path is not None:
             if not self.enable_vl_experts:
@@ -1128,6 +1148,7 @@ class GigaChatVL(nn.Module):
         layer_indices = _resolve_vl_expert_layer_indices(
             num_hidden_layers=len(layers),
             num_lora_layers=self.num_lora_layers,
+            vl_expert_layers=self.vl_expert_layers,
         )
 
         expert_device, expert_dtype = _module_device_dtype(self.llm.get_input_embeddings())
@@ -1177,6 +1198,13 @@ class GigaChatVL(nn.Module):
         for _, wrapper in self._iter_vl_expert_wrappers():
             wrapper.visual_token_mask = visual_token_mask
 
+    def _set_vl_experts_trainable(self, trainable: bool) -> None:
+        if not self.enable_vl_experts:
+            return
+
+        for _, wrapper in self._iter_vl_expert_wrappers():
+            wrapper.visual_expert.requires_grad_(trainable)
+
     def vl_experts_state_dict(self) -> Dict[str, torch.Tensor]:
         if not self.enable_vl_experts:
             return {}
@@ -1206,8 +1234,19 @@ class GigaChatVL(nn.Module):
         payload = torch.load(path, map_location="cpu")
         if isinstance(payload, dict) and "state_dict" in payload:
             state_dict = payload["state_dict"]
+            payload_layers = payload.get("layers")
         else:
             state_dict = payload
+            payload_layers = None
+
+        if payload_layers is not None:
+            payload_layers = [int(layer_idx) for layer_idx in payload_layers]
+            if payload_layers != self.vl_expert_layer_indices:
+                raise RuntimeError(
+                    "VL expert layer mismatch while loading checkpoint. "
+                    f"checkpoint_layers={payload_layers}, "
+                    f"current_layers={self.vl_expert_layer_indices}"
+                )
 
         for layer_idx, wrapper in self._iter_vl_expert_wrappers():
             prefix = f"layers.{layer_idx}.visual_expert."
@@ -1229,6 +1268,7 @@ class GigaChatVL(nn.Module):
             "num_lora_layers": self.num_lora_layers,
             "enable_vl_experts": self.enable_vl_experts,
             "vl_expert_layers": self.vl_expert_layer_indices,
+            "vl_expert_layers_config": self.vl_expert_layers,
             "projector_type": getattr(self, "projector_type", None),
             "projector_num_queries": getattr(self.projector, "num_queries", None),
             "vision_hidden_size": self.vision_hidden_size,
@@ -1270,6 +1310,7 @@ class GigaChatVL(nn.Module):
         projector_type: Optional[str] = None,
         projector_num_queries: Optional[int] = None,
         enable_vl_experts: Optional[bool] = None,
+        vl_expert_layers: Optional[List[int]] = None,
     ) -> "GigaChatVL":
         checkpoint_path = Path(checkpoint_dir)
         if not checkpoint_path.exists():
@@ -1304,6 +1345,11 @@ class GigaChatVL(nn.Module):
         resolved_enable_vl_experts = enable_vl_experts
         if resolved_enable_vl_experts is None:
             resolved_enable_vl_experts = bool(meta.get("enable_vl_experts", False))
+        resolved_vl_expert_layers = vl_expert_layers
+        if resolved_vl_expert_layers is None:
+            resolved_vl_expert_layers = meta.get("vl_expert_layers_config")
+        if resolved_vl_expert_layers is None and bool(resolved_enable_vl_experts):
+            resolved_vl_expert_layers = meta.get("vl_expert_layers")
 
         if resolved_llm_name is None:
             raise RuntimeError(
@@ -1327,6 +1373,7 @@ class GigaChatVL(nn.Module):
             projector_type=resolved_projector_type,
             projector_num_queries=int(resolved_projector_num_queries),
             enable_vl_experts=bool(resolved_enable_vl_experts),
+            vl_expert_layers=resolved_vl_expert_layers,
             vl_experts_path=(
                 str(vl_experts_path)
                 if bool(resolved_enable_vl_experts) and vl_experts_path is not None
@@ -2475,6 +2522,7 @@ class GigaChatVLForInference(GigaChatVL):
         projector_type: Optional[str] = None,
         projector_num_queries: Optional[int] = None,
         enable_vl_experts: Optional[bool] = None,
+        vl_expert_layers: Optional[List[int]] = None,
     ):
         checkpoint_path = Path(checkpoint_dir)
         meta_path = checkpoint_path / "vlm_meta.json"
@@ -2526,6 +2574,11 @@ class GigaChatVLForInference(GigaChatVL):
             )
         if resolved_enable_vl_experts and not vl_experts_path.exists():
             raise FileNotFoundError(f"Missing VL expert weights: {vl_experts_path}")
+        resolved_vl_expert_layers = vl_expert_layers
+        if resolved_vl_expert_layers is None:
+            resolved_vl_expert_layers = meta.get("vl_expert_layers_config")
+        if resolved_vl_expert_layers is None and bool(resolved_enable_vl_experts):
+            resolved_vl_expert_layers = meta.get("vl_expert_layers")
 
         if resolved_llm_name is None:
             raise RuntimeError(
@@ -2560,6 +2613,7 @@ class GigaChatVLForInference(GigaChatVL):
             projector_type=resolved_projector_type,
             projector_num_queries=int(resolved_projector_num_queries),
             enable_vl_experts=bool(resolved_enable_vl_experts),
+            vl_expert_layers=resolved_vl_expert_layers,
             vl_experts_path=(
                 str(vl_experts_path) if bool(resolved_enable_vl_experts) else None
             ),
