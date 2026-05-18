@@ -1,3 +1,4 @@
+import random
 from pathlib import Path
 from typing import Optional, Iterator, Dict, Any
 
@@ -8,65 +9,65 @@ from huggingface_hub import snapshot_download, login
 
 from src.dataset.dataset_base import DatasetConfig
 
+CHARTQA_QUESTION_TEMPLATES_EN = [
+    "Answer the question based on the chart. Give only a short, direct answer.\n\nQuestion: {question}",
+    "Look at the chart and answer the question briefly.\n\nQuestion: {question}",
+    "Use the information shown in the chart to answer. Keep the answer concise.\n\nQuestion: {question}",
+    "Based on the chart, provide the final answer only.\n\nQuestion: {question}",
+    "Read the chart and answer the question with a short answer.\n\nQuestion: {question}",
+    "Use only the visual information in the chart. Respond with the final answer.\n\nQuestion: {question}",
+    "Answer the question using the chart. If calculation is needed, return only the final value.\n\nQuestion: {question}",
+]
 
-def download_pixmo_ask_model_anything_en(
+
+def download_chartqa_en(
     dataset_root: str,
     force_redownload: bool = False,
     hf_token: Optional[str] = None,
 ) -> None:
     """
-    Downloads dnth/pixmo-ask-model-anything-images parquet files.
-
-    This repository contains embedded images in parquet files, so no separate
-    image downloading is needed.
+    Downloads lmms-lab/ChartQA locally.
 
     Expected local structure:
-        dataset_root/
-        └── data/
-            ├── train-00000-of-xxxxx.parquet
-            ├── train-00001-of-xxxxx.parquet
-            └── ...
-
-    Dataset size:
-        153,592 rows
-        ~15.9 GB
+    dataset_root/
+    └── data/
+        ├── train-*.parquet
+        ├── validation-*.parquet
+        └── test-*.parquet
     """
-    repo_id = "dnth/pixmo-ask-model-anything-images"
-
     dataset_root_path = Path(dataset_root)
     dataset_root_path.mkdir(parents=True, exist_ok=True)
 
     if hf_token:
         login(token=hf_token)
+    else:
+        login()
 
-    has_parquet_files = any((dataset_root_path / "data").glob("*.parquet"))
-
-    if not has_parquet_files or force_redownload:
+    if not any(dataset_root_path.iterdir()) or force_redownload:
         snapshot_download(
-            repo_id=repo_id,
+            repo_id="lmms-lab/ChartQA",
             repo_type="dataset",
             local_dir=str(dataset_root_path),
             local_dir_use_symlinks=False,
             force_download=force_redownload,
             resume_download=True,
-            allow_patterns=["data/*.parquet"],
         )
 
 
-def load_pixmo_ask_model_anything_en(
+def load_chartqa_en(
     config: Optional[DatasetConfig] = None,
     limit: Optional[int] = None,
-    shuffle_buffer: int = 1000,
+    shuffle_buffer: int = 100,
     seed: int = 42,
     dataset_root: Optional[str] = None,
 ) -> HFDataset:
     """
-    Loads local PixMo Ask Model Anything parquet shards in streaming mode.
+    Loads local ChartQA parquet files in streaming mode.
     """
     if dataset_root is None:
         raise ValueError(
-            "For PIXMO_ASK_MODEL_ANYTHING_EN dataset_root is required. "
-            "Expected dataset_root/data/train-xxxxx.parquet files."
+            "For CHARTQA_EN dataset_root is required. "
+            "Expected dataset_root/data/*.parquet files."
         )
 
     dataset_root_path = Path(dataset_root)
@@ -76,8 +77,8 @@ def load_pixmo_ask_model_anything_en(
 
     if not parquet_files:
         raise FileNotFoundError(
-            f"No PixMo Ask Model Anything parquet files found under {data_dir}. "
-            "Run download_pixmo_ask_model_anything_en(...) first."
+            f"No ChartQA parquet files found under {data_dir}. "
+            "Run download_chartqa_en(...) first."
         )
 
     ds = load_dataset(
@@ -95,15 +96,15 @@ def load_pixmo_ask_model_anything_en(
     return ds
 
 
-class PixMoAskModelAnythingEnIterableDataset(TorchIterableDataset):
+class ChartQAEnIterableDataset(TorchIterableDataset):
     """
-    Converts dnth/pixmo-ask-model-anything-images samples into the unified format:
+    Converts lmms-lab/ChartQA samples into the unified format:
         {"image": PIL.Image, "question": str, "answer": str}
 
-    Expected useful raw fields:
-        - image
+    Expected raw fields:
         - question
         - answer
+        - image
     """
 
     def __init__(
@@ -117,6 +118,7 @@ class PixMoAskModelAnythingEnIterableDataset(TorchIterableDataset):
         self.raw_hf_iterable = raw_hf_iterable
         self.dataset_root = dataset_root
         self.skip_missing_images = skip_missing_images
+        self.random = random.Random(seed)
 
     def __iter__(self) -> Iterator[Dict[str, Any]]:
         for row in self.raw_hf_iterable:
@@ -133,8 +135,10 @@ class PixMoAskModelAnythingEnIterableDataset(TorchIterableDataset):
             if not question or not answer:
                 continue
 
+            question_template = self.random.choice(CHARTQA_QUESTION_TEMPLATES_EN)
+
             yield {
                 "image": image,
-                "question": question,
+                "question": question_template.format(question=question),
                 "answer": answer,
             }
