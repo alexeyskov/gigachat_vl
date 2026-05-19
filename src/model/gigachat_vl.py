@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from PIL import Image
 from safetensors import safe_open
 
@@ -25,6 +26,8 @@ from peft import LoraConfig, PeftModel, get_peft_model
 
 IMAGE_TOKEN = "<image>"
 IGNORE_INDEX = -100
+DEFAULT_PATCH_VISION_IMAGE_SIZE = 1024
+DEFAULT_PATCH_VISION_PATCH_SIZE = 32
 _MISTRAL_FIXED_REGEX = (
     r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+|"
     r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*|"
@@ -57,11 +60,13 @@ def _prepare_model_for_kbit_training_no_fp32_cast(model: nn.Module) -> nn.Module
 
     if hasattr(model, "enable_input_require_grads"):
         model.enable_input_require_grads()
-    else:
+    elif hasattr(model, "get_input_embeddings"):
         def make_inputs_require_grad(module, input, output):
             output.requires_grad_(True)
 
-        model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
+        input_embeddings = model.get_input_embeddings()
+        if input_embeddings is not None:
+            input_embeddings.register_forward_hook(make_inputs_require_grad)
 
     if hasattr(model, "gradient_checkpointing_enable"):
         try:
@@ -278,13 +283,14 @@ def _toggle_gradient_checkpointing(module: Optional[nn.Module], enabled: bool) -
             method({})
         toggled = True
 
-    for submodule in module.modules():
-        if hasattr(submodule, "gradient_checkpointing"):
-            try:
-                setattr(submodule, "gradient_checkpointing", enabled)
-                toggled = True
-            except Exception:
-                pass
+    if not toggled:
+        for submodule in module.modules():
+            if hasattr(submodule, "gradient_checkpointing"):
+                try:
+                    setattr(submodule, "gradient_checkpointing", enabled)
+                    toggled = True
+                except Exception:
+                    pass
 
     config = getattr(module, "config", None)
     if config is not None and hasattr(config, "use_cache") and enabled:
@@ -581,6 +587,153 @@ def _module_device_dtype(module: nn.Module) -> tuple[torch.device, torch.dtype]:
     return param.device, param.dtype
 
 
+def _replace_linear_layers_with_bnb_4bit(
+    module: nn.Module,
+    compute_dtype: torch.dtype,
+    device: torch.device,
+    exclude_module_names: Optional[List[str]] = None,
+    module_prefix: str = "",
+) -> int:
+    if not torch.cuda.is_available():
+        raise RuntimeError("4-bit vision QLoRA requires CUDA.")
+
+    try:
+        import bitsandbytes as bnb
+    except Exception as e:
+        raise RuntimeError(
+            "bitsandbytes is required for 4-bit vision QLoRA."
+        ) from e
+
+    exclude_module_names = exclude_module_names or []
+    replaced = 0
+    for child_name, child in list(module.named_children()):
+        full_name = f"{module_prefix}.{child_name}" if module_prefix else child_name
+        if any(excluded in full_name for excluded in exclude_module_names):
+            continue
+
+        if isinstance(child, nn.Linear):
+            quantized = bnb.nn.Linear4bit(
+                child.in_features,
+                child.out_features,
+                bias=child.bias is not None,
+                compute_dtype=compute_dtype,
+                quant_type="nf4",
+                compress_statistics=True,
+            )
+            quantized.load_state_dict(
+                {key: value.detach().cpu() for key, value in child.state_dict().items()},
+                strict=True,
+            )
+            quantized.requires_grad_(False)
+            quantized.to(device)
+            setattr(module, child_name, quantized)
+            replaced += 1
+        else:
+            replaced += _replace_linear_layers_with_bnb_4bit(
+                child,
+                compute_dtype=compute_dtype,
+                device=device,
+                exclude_module_names=exclude_module_names,
+                module_prefix=full_name,
+            )
+    return replaced
+
+
+def _pil_to_normalized_tensor(
+    image: Image.Image,
+    max_side_size: Optional[int] = None,
+) -> torch.Tensor:
+    if not isinstance(image, Image.Image):
+        raise TypeError(f"Expected PIL.Image.Image, got {type(image)}")
+
+    image = image.convert("RGB")
+    width, height = image.size
+    if max_side_size is not None and max_side_size > 0:
+        longest_side = max(width, height)
+        if longest_side > max_side_size:
+            scale = float(max_side_size) / float(longest_side)
+            new_width = max(1, int(round(width * scale)))
+            new_height = max(1, int(round(height * scale)))
+            image = image.resize((new_width, new_height), Image.BICUBIC)
+            width, height = image.size
+
+    data = torch.frombuffer(bytearray(image.tobytes()), dtype=torch.uint8)
+    data = data.reshape(height, width, 3).permute(2, 0, 1)
+    tensor = data.to(dtype=torch.float32).div_(255.0)
+    mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32).view(3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).view(3, 1, 1)
+    return (tensor - mean) / std
+
+
+def _ceil_div(a: int, b: int) -> int:
+    return (a + b - 1) // b
+
+
+def _resolve_dtype_choice(
+    dtype_name: str,
+    default_dtype: torch.dtype,
+) -> torch.dtype:
+    name = str(dtype_name or "auto").lower()
+    aliases = {
+        "auto": default_dtype,
+        "bf16": torch.bfloat16,
+        "bfloat16": torch.bfloat16,
+        "fp16": torch.float16,
+        "float16": torch.float16,
+        "half": torch.float16,
+        "fp32": torch.float32,
+        "float32": torch.float32,
+    }
+    if name not in aliases:
+        raise ValueError(
+            "Unsupported dtype choice "
+            f"{dtype_name!r}. Expected one of: 'auto', 'bf16', 'fp16', 'fp32'."
+        )
+    return aliases[name]
+
+
+def _resolve_causal_lm_backbone(model: nn.Module) -> nn.Module:
+    return _first_existing_path(
+        model,
+        [
+            "base_model.model.model",
+            "base_model.model.transformer",
+            "base_model.model.gpt_neox",
+            "base_model.model.backbone",
+            "model",
+            "transformer",
+            "gpt_neox",
+            "backbone",
+        ],
+    )
+
+
+def _clone_shared_tensors_in_state_dict(
+    state_dict: Dict[str, torch.Tensor],
+) -> Dict[str, torch.Tensor]:
+    """Clone duplicate tensor storages so generic safetensors saving can proceed."""
+    seen_storages = set()
+    for key, value in list(state_dict.items()):
+        if not isinstance(value, torch.Tensor):
+            continue
+        try:
+            storage = value.untyped_storage()
+            storage_key = (
+                value.device.type,
+                value.device.index,
+                storage.data_ptr(),
+                storage.nbytes(),
+            )
+        except Exception:
+            continue
+
+        if storage_key in seen_storages:
+            state_dict[key] = value.clone()
+        else:
+            seen_storages.add(storage_key)
+    return state_dict
+
+
 class VisualTokenExpert(nn.Module):
     def __init__(self, hidden_size: int, intermediate_size: int, hidden_act: str, initializer_range: float):
         super().__init__()
@@ -754,12 +907,597 @@ class QFormerProjector(nn.Module):
         return queries
 
 
+class PatchLLMVisionEncoder(nn.Module):
+    def __init__(
+        self,
+        vision_llm_name: str,
+        image_size: int = DEFAULT_PATCH_VISION_IMAGE_SIZE,
+        patch_size: int = DEFAULT_PATCH_VISION_PATCH_SIZE,
+        conv_hidden_size: int = 256,
+        use_maxpool: bool = False,
+        use_qlora: bool = False,
+        lora_r: int = 16,
+        lora_alpha: int = 32,
+        lora_dropout: float = 0.05,
+        lora_path: Optional[str] = None,
+        freeze: bool = False,
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
+    ):
+        super().__init__()
+        if image_size <= 0:
+            raise ValueError(f"image_size must be > 0, got {image_size}")
+        if patch_size <= 0:
+            raise ValueError(f"patch_size must be > 0, got {patch_size}")
+
+        base_patch_grid_size = max(1, _ceil_div(image_size, patch_size))
+        if use_maxpool and base_patch_grid_size % 2 != 0:
+            base_patch_grid_size += 1
+
+        self.vision_llm_name = vision_llm_name
+        self.image_size = int(image_size)
+        self.patch_size = int(patch_size)
+        self.conv_hidden_size = int(conv_hidden_size)
+        self.use_maxpool = bool(use_maxpool)
+        self.use_qlora = bool(use_qlora)
+        self.freeze = bool(freeze)
+        self.base_grid_size = (
+            base_patch_grid_size // 2 if self.use_maxpool else base_patch_grid_size
+        )
+        self.num_base_tokens = self.base_grid_size * self.base_grid_size
+
+        device = device or single_device()
+        dtype = dtype or (torch.bfloat16 if torch.cuda.is_available() else torch.float32)
+        self.dtype = dtype
+
+        vision_quant_config = None
+        vision_device_map = None
+        if self.use_qlora and torch.cuda.is_available():
+            vision_quant_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=dtype,
+            )
+            vision_device_map = single_device_map()
+
+        self.vision_llm = AutoModelForCausalLM.from_pretrained(
+            vision_llm_name,
+            dtype=dtype,
+            quantization_config=vision_quant_config,
+            device_map=vision_device_map,
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+        )
+        if hasattr(self.vision_llm.config, "use_cache"):
+            self.vision_llm.config.use_cache = False
+
+        if vision_quant_config is not None:
+            if (
+                not getattr(self.vision_llm, "is_loaded_in_4bit", False)
+                and _has_4bit_parameters(self.vision_llm)
+            ):
+                self.vision_llm.is_loaded_in_4bit = True
+            self.vision_llm = _prepare_model_for_kbit_training_no_fp32_cast(self.vision_llm)
+        elif not self.use_qlora:
+            self.vision_llm.to(device=device, dtype=dtype)
+
+        self.hidden_size = getattr(self.vision_llm.config, "hidden_size", None)
+        if self.hidden_size is None:
+            self.hidden_size = getattr(self.vision_llm.config, "n_embd", None)
+        if self.hidden_size is None:
+            raise RuntimeError(
+                f"Could not infer hidden size from vision LLM {vision_llm_name}."
+            )
+
+        if self.use_qlora or lora_path is not None:
+            if lora_path is not None:
+                self.vision_llm = PeftModel.from_pretrained(
+                    self.vision_llm,
+                    lora_path,
+                    is_trainable=not self.freeze,
+                )
+            else:
+                target_modules = _resolve_lora_target_modules(
+                    self.vision_llm,
+                    num_lora_layers=-1,
+                    exclude_substrings=["lm_head"],
+                )
+                lora_cfg = LoraConfig(
+                    task_type="CAUSAL_LM",
+                    r=lora_r,
+                    lora_alpha=lora_alpha,
+                    lora_dropout=lora_dropout,
+                    bias="none",
+                    target_modules=target_modules,
+                )
+                self.vision_llm = get_peft_model(self.vision_llm, lora_cfg)
+
+        backbone = self.vision_llm_backbone
+        backbone_config = getattr(backbone, "config", None)
+        if backbone_config is not None and hasattr(backbone_config, "use_cache"):
+            backbone_config.use_cache = False
+
+        conv_layers: List[nn.Module] = [
+            nn.Conv2d(
+                3,
+                self.conv_hidden_size,
+                kernel_size=self.patch_size,
+                stride=self.patch_size,
+                bias=False,
+            ),
+            nn.GELU(),
+            nn.Conv2d(
+                self.conv_hidden_size,
+                self.conv_hidden_size,
+                kernel_size=3,
+                padding=1,
+                bias=False,
+            ),
+            nn.GELU(),
+            nn.Conv2d(
+                self.conv_hidden_size,
+                self.conv_hidden_size,
+                kernel_size=3,
+                padding=1,
+                bias=False,
+            ),
+            nn.GELU(),
+        ]
+        if self.use_maxpool:
+            conv_layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
+
+        self.conv = nn.Sequential(*conv_layers)
+        self.pos_embed = nn.Parameter(
+            torch.zeros(1, self.num_base_tokens, self.conv_hidden_size)
+        )
+        self.to_llm = nn.Sequential(
+            nn.LayerNorm(self.conv_hidden_size),
+            nn.Linear(self.conv_hidden_size, self.hidden_size),
+            nn.GELU(),
+            nn.Linear(self.hidden_size, self.hidden_size),
+            nn.LayerNorm(self.hidden_size),
+        )
+        self.output_norm = nn.LayerNorm(self.hidden_size)
+
+        nn.init.normal_(self.pos_embed, mean=0.0, std=0.02)
+        self.conv.to(device=device, dtype=dtype)
+        self.pos_embed.data = self.pos_embed.data.to(device=device, dtype=dtype)
+        self.to_llm.to(device=device, dtype=dtype)
+        self.output_norm.to(device=device, dtype=dtype)
+        self.set_trainable(not self.freeze)
+
+    @property
+    def vision_llm_backbone(self) -> nn.Module:
+        return _resolve_causal_lm_backbone(self.vision_llm)
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if self.freeze:
+            self.vision_llm.eval()
+        return self
+
+    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs: Optional[Dict[str, Any]] = None):
+        method = getattr(self.vision_llm, "gradient_checkpointing_enable", None)
+        if callable(method):
+            try:
+                if gradient_checkpointing_kwargs is None:
+                    method()
+                else:
+                    method(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
+            except TypeError:
+                method()
+
+        config = getattr(self.vision_llm, "config", None)
+        if config is not None and hasattr(config, "use_cache"):
+            config.use_cache = False
+
+    def gradient_checkpointing_disable(self):
+        method = getattr(self.vision_llm, "gradient_checkpointing_disable", None)
+        if callable(method):
+            method()
+
+    def set_trainable(self, trainable: bool) -> None:
+        self.freeze = not trainable
+        self.conv.requires_grad_(trainable)
+        self.pos_embed.requires_grad_(trainable)
+        self.to_llm.requires_grad_(trainable)
+        self.output_norm.requires_grad_(trainable)
+
+        if self.use_qlora or isinstance(self.vision_llm, PeftModel):
+            for name, param in self.vision_llm.named_parameters():
+                is_adapter_param = "lora_" in name or "modules_to_save" in name
+                param.requires_grad = bool(trainable and is_adapter_param)
+        else:
+            self.vision_llm.requires_grad_(trainable)
+
+        if not trainable:
+            self.vision_llm.eval()
+
+    def non_llm_state_dict(self) -> Dict[str, torch.Tensor]:
+        state_dict = {"pos_embed": self.pos_embed.detach().cpu()}
+        for prefix, module in [
+            ("conv", self.conv),
+            ("to_llm", self.to_llm),
+            ("output_norm", self.output_norm),
+        ]:
+            for key, value in module.state_dict().items():
+                state_dict[f"{prefix}.{key}"] = value.detach().cpu()
+        return state_dict
+
+    def load_non_llm_state_dict(self, state_dict: Dict[str, torch.Tensor]) -> None:
+        expected_keys = set(self.non_llm_state_dict().keys())
+        provided_keys = set(state_dict.keys())
+        missing_keys = sorted(expected_keys - provided_keys)
+        unexpected_keys = sorted(provided_keys - expected_keys)
+        if missing_keys:
+            raise RuntimeError(f"Missing patch-LLM vision encoder weights: {missing_keys}")
+        if unexpected_keys:
+            raise RuntimeError(
+                f"Unexpected patch-LLM vision encoder weights: {unexpected_keys}"
+            )
+
+        pos_embed = state_dict["pos_embed"]
+        if tuple(pos_embed.shape) != tuple(self.pos_embed.shape):
+            raise RuntimeError(
+                "Patch-LLM position embedding shape mismatch. "
+                f"checkpoint={tuple(pos_embed.shape)}, current={tuple(self.pos_embed.shape)}"
+            )
+        self.pos_embed.data.copy_(pos_embed.to(
+            device=self.pos_embed.device,
+            dtype=self.pos_embed.dtype,
+        ))
+
+        for prefix, module in [
+            ("conv", self.conv),
+            ("to_llm", self.to_llm),
+            ("output_norm", self.output_norm),
+        ]:
+            module_state = {
+                key[len(prefix) + 1 :]: value
+                for key, value in state_dict.items()
+                if key.startswith(f"{prefix}.")
+            }
+            module.load_state_dict(module_state, strict=True)
+
+    def _pad_pixel_values_to_patch_grid(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        height, width = pixel_values.shape[-2:]
+        patch_grid_h = max(1, _ceil_div(int(height), self.patch_size))
+        patch_grid_w = max(1, _ceil_div(int(width), self.patch_size))
+
+        if self.use_maxpool:
+            if patch_grid_h % 2 != 0:
+                patch_grid_h += 1
+            if patch_grid_w % 2 != 0:
+                patch_grid_w += 1
+
+        target_h = patch_grid_h * self.patch_size
+        target_w = patch_grid_w * self.patch_size
+        pad_h = target_h - height
+        pad_w = target_w - width
+        if pad_h > 0 or pad_w > 0:
+            pixel_values = F.pad(pixel_values, (0, pad_w, 0, pad_h), value=0.0)
+        return pixel_values
+
+    def _position_embeddings_for_grid(
+        self,
+        grid_h: int,
+        grid_w: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        if grid_h <= 0 or grid_w <= 0:
+            raise RuntimeError(f"Invalid Patch-LLM feature grid: {(grid_h, grid_w)}")
+
+        pos = self.pos_embed.reshape(
+            1,
+            self.base_grid_size,
+            self.base_grid_size,
+            self.conv_hidden_size,
+        ).permute(0, 3, 1, 2)
+
+        if grid_h != self.base_grid_size or grid_w != self.base_grid_size:
+            pos = F.interpolate(
+                pos.float(),
+                size=(grid_h, grid_w),
+                mode="bicubic",
+                align_corners=False,
+            ).to(dtype=dtype)
+        else:
+            pos = pos.to(dtype=dtype)
+
+        return pos.to(device=device).permute(0, 2, 3, 1).reshape(
+            1,
+            grid_h * grid_w,
+            self.conv_hidden_size,
+        )
+
+    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        conv_device, conv_dtype = _module_device_dtype(self.conv)
+        pixel_values = pixel_values.to(device=conv_device, dtype=conv_dtype)
+        pixel_values = self._pad_pixel_values_to_patch_grid(pixel_values)
+
+        features = self.conv(pixel_values)
+        grid_h, grid_w = int(features.size(-2)), int(features.size(-1))
+        tokens = features.flatten(2).transpose(1, 2)
+        tokens = tokens + self._position_embeddings_for_grid(
+            grid_h=grid_h,
+            grid_w=grid_w,
+            device=tokens.device,
+            dtype=tokens.dtype,
+        )
+        inputs_embeds = self.to_llm(tokens)
+        attention_mask = torch.ones(
+            inputs_embeds.shape[:2],
+            dtype=torch.long,
+            device=inputs_embeds.device,
+        )
+
+        if self.freeze:
+            self.vision_llm.eval()
+
+        try:
+            outputs = self.vision_llm_backbone(
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                use_cache=False,
+            )
+        except TypeError:
+            outputs = self.vision_llm_backbone(
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+            )
+
+        hidden_states = getattr(outputs, "last_hidden_state", None)
+        if hidden_states is None:
+            hidden_states = outputs[0]
+        return self.output_norm(hidden_states)
+
+
+class LLMProjector(nn.Module):
+    def __init__(
+        self,
+        vision_dim: int,
+        llm_dim: int,
+        connector_llm_name: str,
+        freeze_connector_llm: bool = True,
+        connector_llm_use_qlora: bool = False,
+        connector_lora_r: int = 16,
+        connector_lora_alpha: int = 32,
+        connector_lora_dropout: float = 0.05,
+        connector_llm_lora_path: Optional[str] = None,
+        connector_dtype: Optional[torch.dtype] = None,
+    ):
+        super().__init__()
+        self.connector_llm_name = connector_llm_name
+        self.freeze_connector_llm = freeze_connector_llm
+        self.connector_llm_use_qlora = bool(
+            connector_llm_use_qlora or connector_llm_lora_path is not None
+        )
+        self.connector_lora_r = int(connector_lora_r)
+        self.connector_lora_alpha = int(connector_lora_alpha)
+        self.connector_lora_dropout = float(connector_lora_dropout)
+        self.connector_llm_lora_path = connector_llm_lora_path
+
+        connector_quant_config = None
+        connector_device_map = None
+        if self.connector_llm_use_qlora and torch.cuda.is_available():
+            connector_quant_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=connector_dtype or torch.bfloat16,
+            )
+            connector_device_map = single_device_map()
+
+        self.connector_llm = AutoModelForCausalLM.from_pretrained(
+            connector_llm_name,
+            dtype=connector_dtype,
+            quantization_config=connector_quant_config,
+            device_map=connector_device_map,
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+        )
+        self.connector_config = self.connector_llm.config
+        if hasattr(self.connector_config, "use_cache"):
+            self.connector_config.use_cache = False
+
+        if connector_quant_config is not None:
+            if (
+                not getattr(self.connector_llm, "is_loaded_in_4bit", False)
+                and _has_4bit_parameters(self.connector_llm)
+            ):
+                self.connector_llm.is_loaded_in_4bit = True
+            self.connector_llm = _prepare_model_for_kbit_training_no_fp32_cast(
+                self.connector_llm
+            )
+
+        if connector_llm_lora_path is not None:
+            self.connector_llm = PeftModel.from_pretrained(
+                self.connector_llm,
+                connector_llm_lora_path,
+                is_trainable=not self.freeze_connector_llm,
+            )
+        elif self.connector_llm_use_qlora:
+            target_modules = _resolve_lora_target_modules(
+                self.connector_llm,
+                num_lora_layers=-1,
+                exclude_substrings=["lm_head"],
+            )
+            lora_cfg = LoraConfig(
+                task_type="CAUSAL_LM",
+                r=self.connector_lora_r,
+                lora_alpha=self.connector_lora_alpha,
+                lora_dropout=self.connector_lora_dropout,
+                bias="none",
+                target_modules=target_modules,
+            )
+            self.connector_llm = get_peft_model(self.connector_llm, lora_cfg)
+
+        connector_model_config = getattr(self.connector_model, "config", None)
+        if connector_model_config is not None and hasattr(connector_model_config, "use_cache"):
+            connector_model_config.use_cache = False
+        connector_hidden_size = getattr(self.connector_config, "hidden_size", None)
+        if connector_hidden_size is None:
+            connector_hidden_size = getattr(self.connector_config, "n_embd", None)
+        if connector_hidden_size is None:
+            raise RuntimeError(
+                f"Could not infer connector hidden size from {connector_llm_name}."
+            )
+
+        self.input_norm = nn.LayerNorm(vision_dim)
+        self.vision_in_proj = nn.Linear(vision_dim, connector_hidden_size)
+        self.output_norm = nn.LayerNorm(connector_hidden_size)
+        self.llm_out_proj = nn.Linear(connector_hidden_size, llm_dim)
+
+        self.set_connector_trainable(not self.freeze_connector_llm)
+
+    @property
+    def connector_model(self) -> nn.Module:
+        return _first_existing_path(
+            self.connector_llm,
+            [
+                "base_model.model.model",
+                "base_model.model.transformer",
+                "base_model.model.gpt_neox",
+                "base_model.model.backbone",
+                "model",
+                "transformer",
+                "gpt_neox",
+                "backbone",
+            ],
+        )
+
+    def move_projection_layers(
+        self,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> None:
+        for module in [
+            self.input_norm,
+            self.vision_in_proj,
+            self.output_norm,
+            self.llm_out_proj,
+        ]:
+            module.to(device=device, dtype=dtype)
+
+        if not self.connector_llm_use_qlora:
+            self.connector_llm.to(device=device, dtype=dtype)
+
+    def set_connector_trainable(self, trainable: bool) -> None:
+        if self.connector_llm_use_qlora or isinstance(self.connector_llm, PeftModel):
+            for name, param in self.connector_llm.named_parameters():
+                is_adapter_param = "lora_" in name or "modules_to_save" in name
+                param.requires_grad = bool(trainable and is_adapter_param)
+        else:
+            self.connector_llm.requires_grad_(trainable)
+
+        if not trainable:
+            self.connector_llm.eval()
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if self.freeze_connector_llm:
+            self.connector_llm.eval()
+        return self
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        squeeze = False
+        if x.dim() == 2:
+            x = x.unsqueeze(0)
+            squeeze = True
+
+        connector_inputs = self.vision_in_proj(self.input_norm(x))
+        attention_mask = torch.ones(
+            connector_inputs.shape[:2],
+            dtype=torch.long,
+            device=connector_inputs.device,
+        )
+
+        if self.freeze_connector_llm:
+            self.connector_llm.eval()
+
+        try:
+            outputs = self.connector_model(
+                inputs_embeds=connector_inputs,
+                attention_mask=attention_mask,
+                use_cache=False,
+            )
+        except TypeError:
+            outputs = self.connector_model(
+                inputs_embeds=connector_inputs,
+                attention_mask=attention_mask,
+            )
+
+        hidden_states = getattr(outputs, "last_hidden_state", None)
+        if hidden_states is None:
+            hidden_states = outputs[0]
+
+        y = self.llm_out_proj(self.output_norm(hidden_states))
+        if squeeze:
+            return y[0]
+        return y
+
+    def connector_state_dict(self) -> Dict[str, torch.Tensor]:
+        state_dict = {}
+        for prefix, module in [
+            ("input_norm", self.input_norm),
+            ("vision_in_proj", self.vision_in_proj),
+            ("output_norm", self.output_norm),
+            ("llm_out_proj", self.llm_out_proj),
+        ]:
+            for key, value in module.state_dict().items():
+                state_dict[f"{prefix}.{key}"] = value.detach().cpu()
+
+        if not self.freeze_connector_llm and not self.connector_llm_use_qlora:
+            for key, value in self.connector_model.state_dict().items():
+                state_dict[f"connector_model.{key}"] = value.detach().cpu()
+        return state_dict
+
+    def load_connector_state_dict(self, state_dict: Dict[str, torch.Tensor]) -> None:
+        connector_model_state = {
+            key[len("connector_model.") :]: value
+            for key, value in state_dict.items()
+            if key.startswith("connector_model.")
+        }
+        projector_state = {
+            key: value
+            for key, value in state_dict.items()
+            if not key.startswith("connector_model.")
+        }
+
+        missing_keys, unexpected_keys = self.load_state_dict(projector_state, strict=False)
+        if connector_model_state:
+            self.connector_model.load_state_dict(connector_model_state, strict=True)
+
+        required_keys = {
+            "input_norm.weight",
+            "input_norm.bias",
+            "vision_in_proj.weight",
+            "vision_in_proj.bias",
+            "output_norm.weight",
+            "output_norm.bias",
+            "llm_out_proj.weight",
+            "llm_out_proj.bias",
+        }
+        missing_required = sorted(key for key in missing_keys if key in required_keys)
+        if missing_required:
+            raise RuntimeError(f"Missing LLM projector weights: {missing_required}")
+        unexpected_keys = [
+            key for key in unexpected_keys if not key.startswith("connector_llm.")
+        ]
+        if unexpected_keys:
+            raise RuntimeError(f"Unexpected LLM projector weights: {unexpected_keys}")
+
+
 def _infer_projector_type_from_state_dict(state_dict: Dict[str, Any]) -> Optional[str]:
     keys = set(state_dict.keys())
     if any(key.startswith("net.") for key in keys):
         return "mlp"
     if "vision_proj.weight" in keys or "query_tokens" in keys:
         return "qformer"
+    if "vision_in_proj.weight" in keys or "llm_out_proj.weight" in keys:
+        return "llm"
     return None
 
 
@@ -913,6 +1651,22 @@ class GigaChatVL(nn.Module):
         tokenizer_name: Optional[str] = None,
         use_4bit_llm: bool = True,
         freeze_vision: bool = True,
+        vision_backend: Optional[str] = None,
+        vision_image_size: int = DEFAULT_PATCH_VISION_IMAGE_SIZE,
+        vision_patch_size: int = DEFAULT_PATCH_VISION_PATCH_SIZE,
+        vision_conv_hidden_size: int = 256,
+        vision_use_maxpool: bool = False,
+        vision_llm_use_qlora: bool = False,
+        vision_llm_dtype: str = "auto",
+        vision_use_lora: bool = False,
+        vision_use_qlora: bool = False,
+        vision_lora_r: int = 16,
+        vision_lora_alpha: int = 32,
+        vision_lora_dropout: float = 0.05,
+        vision_lora_path: Optional[str] = None,
+        vision_projector_path: Optional[str] = None,
+        vision_encoder_path: Optional[str] = None,
+        vision_llm_lora_path: Optional[str] = None,
         lora_r: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
@@ -921,6 +1675,13 @@ class GigaChatVL(nn.Module):
         projector_path: Optional[str] = None,
         projector_type: str = "qformer",
         projector_num_queries: int = 32,
+        connector_llm_name: Optional[str] = None,
+        freeze_connector_llm: bool = True,
+        connector_llm_use_qlora: bool = False,
+        connector_lora_r: int = 16,
+        connector_lora_alpha: int = 32,
+        connector_lora_dropout: float = 0.05,
+        connector_llm_lora_path: Optional[str] = None,
         enable_vl_experts: bool = False,
         vl_expert_layers: Optional[List[int]] = None,
         vl_experts_path: Optional[str] = None,
@@ -930,6 +1691,24 @@ class GigaChatVL(nn.Module):
         self.llm_name = llm_name
         self.freeze_vision = freeze_vision
         self.vision_name = vision_name
+        self.vision_backend_override = vision_backend.lower() if vision_backend is not None else None
+        self.vision_image_size = int(vision_image_size)
+        self.vision_patch_size = int(vision_patch_size)
+        self.vision_conv_hidden_size = int(vision_conv_hidden_size)
+        self.vision_use_maxpool = bool(vision_use_maxpool)
+        self.vision_llm_use_qlora = bool(vision_llm_use_qlora)
+        self.vision_llm_dtype = str(vision_llm_dtype or "auto").lower()
+        self.vision_use_lora = bool(
+            vision_use_lora or vision_use_qlora or vision_lora_path is not None
+        )
+        self.vision_use_qlora = bool(vision_use_qlora)
+        self.vision_lora_r = int(vision_lora_r)
+        self.vision_lora_alpha = int(vision_lora_alpha)
+        self.vision_lora_dropout = float(vision_lora_dropout)
+        self.vision_lora_path = vision_lora_path
+        self.vision_projector_path = vision_projector_path
+        self.vision_encoder_path = vision_encoder_path
+        self.vision_llm_lora_path = vision_llm_lora_path
         self.num_lora_layers = num_lora_layers
         self.vl_expert_layers = vl_expert_layers
         self.enable_vl_experts = enable_vl_experts or vl_experts_path is not None
@@ -1047,16 +1826,18 @@ class GigaChatVL(nn.Module):
                 num_lora_layers=self.num_lora_layers,
                 exclude_substrings=[".visual_expert."] if self.enable_vl_experts else None,
             )
-            lora_cfg = LoraConfig(
-                task_type="CAUSAL_LM",
-                r=lora_r,
-                lora_alpha=lora_alpha,
-                lora_dropout=lora_dropout,
-                bias="none",
-                target_modules=target_modules,
-                layers_to_transform=layers_to_transform,
-                layers_pattern="layers",
-            )
+            lora_kwargs = {
+                "task_type": "CAUSAL_LM",
+                "r": lora_r,
+                "lora_alpha": lora_alpha,
+                "lora_dropout": lora_dropout,
+                "bias": "none",
+                "target_modules": target_modules,
+            }
+            if layers_to_transform is not None:
+                lora_kwargs["layers_to_transform"] = layers_to_transform
+                lora_kwargs["layers_pattern"] = "layers"
+            lora_cfg = LoraConfig(**lora_kwargs)
             self.llm = get_peft_model(self.llm, lora_cfg)
             self._set_vl_experts_trainable(True)
 
@@ -1075,10 +1856,19 @@ class GigaChatVL(nn.Module):
         self.gemma_image_placeholder = None
         self.projector_type = projector_type.lower()
         self.projector_num_queries = projector_num_queries
-        if self.projector_type not in {"qformer", "mlp"}:
+        self.connector_llm_name = connector_llm_name
+        self.freeze_connector_llm = freeze_connector_llm
+        self.connector_llm_use_qlora = bool(
+            connector_llm_use_qlora or connector_llm_lora_path is not None
+        )
+        self.connector_lora_r = int(connector_lora_r)
+        self.connector_lora_alpha = int(connector_lora_alpha)
+        self.connector_lora_dropout = float(connector_lora_dropout)
+        self.connector_llm_lora_path = connector_llm_lora_path
+        if self.projector_type not in {"qformer", "mlp", "llm"}:
             raise ValueError(
                 f"Unsupported projector_type={projector_type}. "
-                "Supported values: 'qformer', 'mlp'."
+                "Supported values: 'qformer', 'mlp', 'llm'."
             )
 
         self._load_vision_backend(vision_name)
@@ -1090,15 +1880,41 @@ class GigaChatVL(nn.Module):
                 llm_dim=self.llm_hidden_size,
                 num_queries=self.projector_num_queries,
             )
-        else:
+        elif self.projector_type == "mlp":
             self.projector = MLPProjector(
                 vision_dim=self.vision_hidden_size,
                 llm_dim=self.llm_hidden_size,
             )
-        self.projector.to(
-            device=self.llm.get_input_embeddings().weight.device,
-            dtype=self.llm.get_input_embeddings().weight.dtype,
-        )
+        else:
+            if self.connector_llm_name is None:
+                raise ValueError(
+                    "projector_type='llm' requires connector_llm_name, for example "
+                    "'Qwen/Qwen3-0.6B'."
+                )
+            self.projector = LLMProjector(
+                vision_dim=self.vision_hidden_size,
+                llm_dim=self.llm_hidden_size,
+                connector_llm_name=self.connector_llm_name,
+                freeze_connector_llm=self.freeze_connector_llm,
+                connector_llm_use_qlora=self.connector_llm_use_qlora,
+                connector_lora_r=self.connector_lora_r,
+                connector_lora_alpha=self.connector_lora_alpha,
+                connector_lora_dropout=self.connector_lora_dropout,
+                connector_llm_lora_path=self.connector_llm_lora_path,
+                connector_dtype=self.llm.get_input_embeddings().weight.dtype,
+            )
+        projector_device = self.llm.get_input_embeddings().weight.device
+        projector_dtype = self.llm.get_input_embeddings().weight.dtype
+        if isinstance(self.projector, LLMProjector):
+            self.projector.move_projection_layers(
+                device=projector_device,
+                dtype=projector_dtype,
+            )
+        else:
+            self.projector.to(
+                device=projector_device,
+                dtype=projector_dtype,
+            )
         if projector_path is not None:
             projector_state = torch.load(projector_path, map_location="cpu")
             checkpoint_projector_type = _infer_projector_type_from_state_dict(projector_state)
@@ -1112,7 +1928,7 @@ class GigaChatVL(nn.Module):
                     f"current_projector_type={self.projector_type}"
                 )
             try:
-                self.projector.load_state_dict(projector_state)
+                self._load_projector_state_dict(projector_state)
             except RuntimeError as e:
                 checkpoint_vision_dim = None
                 current_vision_dim = None
@@ -1123,6 +1939,13 @@ class GigaChatVL(nn.Module):
                     mlp_weight = projector_state.get("net.0.weight")
                     if torch.is_tensor(mlp_weight) and mlp_weight.dim() == 2:
                         checkpoint_vision_dim = int(mlp_weight.shape[1])
+                if checkpoint_vision_dim is None:
+                    llm_connector_weight = projector_state.get("vision_in_proj.weight")
+                    if (
+                        torch.is_tensor(llm_connector_weight)
+                        and llm_connector_weight.dim() == 2
+                    ):
+                        checkpoint_vision_dim = int(llm_connector_weight.shape[1])
 
                 current_weight = getattr(getattr(self.projector, "vision_proj", None), "weight", None)
                 if current_weight is None and hasattr(self.projector, "net"):
@@ -1130,6 +1953,12 @@ class GigaChatVL(nn.Module):
                         current_weight = self.projector.net[0].weight
                     except Exception:
                         current_weight = None
+                if current_weight is None:
+                    current_weight = getattr(
+                        getattr(self.projector, "vision_in_proj", None),
+                        "weight",
+                        None,
+                    )
                 if torch.is_tensor(current_weight) and current_weight.dim() == 2:
                     current_vision_dim = int(current_weight.shape[1])
 
@@ -1142,6 +1971,205 @@ class GigaChatVL(nn.Module):
                     f"current_vision_dim={current_vision_dim}, "
                     f"current_vision_name={vision_name}"
                 ) from e
+
+    def state_dict(self, *args, **kwargs):
+        state_dict = super().state_dict(*args, **kwargs)
+        return _clone_shared_tensors_in_state_dict(state_dict)
+
+    def _vision_tower_device_dtype(self) -> tuple[torch.device, torch.dtype]:
+        device, dtype = _module_device_dtype(self.vision_tower)
+        if getattr(self, "vision_use_qlora", False):
+            dtype = getattr(self, "vision_compute_dtype", dtype)
+        return device, dtype
+
+    def _configure_donor_vision_trainability(
+        self,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> None:
+        if self.vision_tower is None:
+            return
+
+        self.vision_compute_dtype = dtype
+        use_adapter = bool(
+            self.vision_use_lora
+            or self.vision_use_qlora
+            or self.vision_lora_path is not None
+        )
+
+        if use_adapter:
+            if self.freeze_vision and self.vision_lora_path is None:
+                raise ValueError(
+                    "Vision LoRA/QLoRA training requires freeze_vision=False. "
+                    "Use freeze_vision=True only when loading an existing vision_lora adapter "
+                    "for inference."
+                )
+
+            target_modules = _resolve_lora_target_modules(
+                self.vision_tower,
+                num_lora_layers=0,
+            )
+
+            if self.vision_use_qlora:
+                replaced = _replace_linear_layers_with_bnb_4bit(
+                    self.vision_tower,
+                    compute_dtype=dtype,
+                    device=device,
+                    exclude_module_names=[
+                        # Gemma4 casts pixel inputs to input_proj.weight.dtype.
+                        # Linear4bit stores weights as uint8, which would turn
+                        # pixels into Byte tensors before LoRA dropout.
+                        "patch_embedder.input_proj",
+                    ],
+                )
+                if replaced == 0:
+                    raise RuntimeError(
+                        "Could not replace any vision Linear layers with 4-bit layers."
+                    )
+                self.vision_tower.is_loaded_in_4bit = True
+                self.vision_tower = _prepare_model_for_kbit_training_no_fp32_cast(
+                    self.vision_tower
+                )
+
+            if self.vision_lora_path is not None:
+                self.vision_tower = PeftModel.from_pretrained(
+                    self.vision_tower,
+                    self.vision_lora_path,
+                    is_trainable=not self.freeze_vision,
+                )
+            else:
+                lora_cfg = LoraConfig(
+                    r=self.vision_lora_r,
+                    lora_alpha=self.vision_lora_alpha,
+                    lora_dropout=self.vision_lora_dropout,
+                    bias="none",
+                    target_modules=target_modules,
+                )
+                self.vision_tower = get_peft_model(self.vision_tower, lora_cfg)
+
+            for name, param in self.vision_tower.named_parameters():
+                is_adapter_param = "lora_" in name or "modules_to_save" in name
+                param.requires_grad = bool((not self.freeze_vision) and is_adapter_param)
+        else:
+            self.vision_tower.requires_grad_(not self.freeze_vision)
+
+        if self.vision_projector is not None:
+            self.vision_projector.requires_grad_(not self.freeze_vision)
+
+        if self.freeze_vision:
+            self.vision_tower.eval()
+            if self.vision_projector is not None:
+                self.vision_projector.eval()
+
+    def _load_vision_projector_state_dict(self, path: str) -> None:
+        if self.vision_projector is None:
+            raise RuntimeError(
+                "A vision_projector checkpoint was provided, but this backend "
+                "does not expose a donor vision_projector."
+            )
+        state_dict = torch.load(path, map_location="cpu")
+        self.vision_projector.load_state_dict(state_dict, strict=True)
+
+    def projector_state_dict(self) -> Dict[str, torch.Tensor]:
+        if isinstance(self.projector, LLMProjector):
+            return self.projector.connector_state_dict()
+        return {
+            key: value.detach().cpu()
+            for key, value in self.projector.state_dict().items()
+        }
+
+    def _load_projector_state_dict(self, state_dict: Dict[str, torch.Tensor]) -> None:
+        if isinstance(self.projector, LLMProjector):
+            self.projector.load_connector_state_dict(state_dict)
+        else:
+            self.projector.load_state_dict(state_dict)
+
+    def vision_encoder_state_dict(self) -> Dict[str, torch.Tensor]:
+        if self.vision_backend == "patch_llm" and isinstance(self.vision_tower, PatchLLMVisionEncoder):
+            return self.vision_tower.non_llm_state_dict()
+        if self.vision_tower is None:
+            return {}
+        return {
+            key: value.detach().cpu()
+            for key, value in self.vision_tower.state_dict().items()
+        }
+
+    def save_vision_encoder(self, output_dir: str) -> None:
+        if self.vision_backend != "patch_llm" or not isinstance(
+            self.vision_tower,
+            PatchLLMVisionEncoder,
+        ):
+            if (
+                self.vision_tower is not None
+                and isinstance(self.vision_tower, PeftModel)
+            ):
+                output_path = Path(output_dir)
+                output_path.mkdir(parents=True, exist_ok=True)
+                self.vision_tower.save_pretrained(str(output_path / "vision_lora"))
+
+            if self.vision_projector is not None and not self.freeze_vision:
+                output_path = Path(output_dir)
+                output_path.mkdir(parents=True, exist_ok=True)
+                torch.save(
+                    {
+                        key: value.detach().cpu()
+                        for key, value in self.vision_projector.state_dict().items()
+                    },
+                    output_path / "vision_projector.pt",
+                )
+            return
+
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "state_dict": self.vision_encoder_state_dict(),
+                "config": {
+                    "vision_backend": self.vision_backend,
+                    "vision_name": self.vision_name,
+                    "vision_image_size": self.vision_image_size,
+                    "vision_max_side_size": self.vision_image_size,
+                    "vision_patch_size": self.vision_patch_size,
+                    "vision_conv_hidden_size": self.vision_conv_hidden_size,
+                    "vision_use_maxpool": self.vision_use_maxpool,
+                    "vision_llm_use_qlora": self.vision_llm_use_qlora,
+                    "vision_llm_dtype": self.vision_llm_dtype,
+                },
+            },
+            output_path / "vision_encoder.pt",
+        )
+
+        if isinstance(self.vision_tower.vision_llm, PeftModel):
+            self.vision_tower.vision_llm.save_pretrained(
+                str(output_path / "vision_llm_lora")
+            )
+        elif not self.freeze_vision:
+            self.vision_tower.vision_llm.save_pretrained(
+                str(output_path / "vision_llm")
+            )
+
+    def save_connector_llm(self, output_dir: str) -> None:
+        if not isinstance(self.projector, LLMProjector):
+            return
+        if not isinstance(self.projector.connector_llm, PeftModel):
+            return
+
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        self.projector.connector_llm.save_pretrained(
+            str(output_path / "connector_llm_lora")
+        )
+
+    def load_vision_encoder(self, path: str) -> None:
+        if self.vision_backend != "patch_llm" or not isinstance(
+            self.vision_tower,
+            PatchLLMVisionEncoder,
+        ):
+            raise RuntimeError("Patch-LLM vision encoder must be initialized before loading.")
+
+        payload = torch.load(path, map_location="cpu")
+        state_dict = payload.get("state_dict", payload) if isinstance(payload, dict) else payload
+        self.vision_tower.load_non_llm_state_dict(state_dict)
 
     def _install_vl_experts(self) -> None:
         layers = _resolve_llm_decoder_layers(self.llm)
@@ -1271,10 +2299,29 @@ class GigaChatVL(nn.Module):
             "vl_expert_layers_config": self.vl_expert_layers,
             "projector_type": getattr(self, "projector_type", None),
             "projector_num_queries": getattr(self.projector, "num_queries", None),
+            "connector_llm_name": getattr(self, "connector_llm_name", None),
+            "freeze_connector_llm": getattr(self, "freeze_connector_llm", True),
+            "connector_llm_use_qlora": getattr(self, "connector_llm_use_qlora", False),
+            "connector_lora_r": getattr(self, "connector_lora_r", 16),
+            "connector_lora_alpha": getattr(self, "connector_lora_alpha", 32),
+            "connector_lora_dropout": getattr(self, "connector_lora_dropout", 0.05),
             "vision_hidden_size": self.vision_hidden_size,
             "vision_backend": self.vision_backend,
+            "vision_backend_override": self.vision_backend_override,
             "vision_name": self.vision_name,
             "freeze_vision": self.freeze_vision,
+            "vision_image_size": self.vision_image_size,
+            "vision_max_side_size": self.vision_image_size,
+            "vision_patch_size": self.vision_patch_size,
+            "vision_conv_hidden_size": self.vision_conv_hidden_size,
+            "vision_use_maxpool": self.vision_use_maxpool,
+            "vision_llm_use_qlora": self.vision_llm_use_qlora,
+            "vision_llm_dtype": self.vision_llm_dtype,
+            "vision_use_lora": self.vision_use_lora,
+            "vision_use_qlora": self.vision_use_qlora,
+            "vision_lora_r": self.vision_lora_r,
+            "vision_lora_alpha": self.vision_lora_alpha,
+            "vision_lora_dropout": self.vision_lora_dropout,
         }
 
     def save_training_setup(self, output_dir: str) -> None:
@@ -1303,12 +2350,30 @@ class GigaChatVL(nn.Module):
         vision_name: Optional[str] = None,
         use_4bit_llm: bool = True,
         freeze_vision: bool = True,
+        vision_backend: Optional[str] = None,
+        vision_image_size: Optional[int] = None,
+        vision_patch_size: Optional[int] = None,
+        vision_conv_hidden_size: Optional[int] = None,
+        vision_use_maxpool: Optional[bool] = None,
+        vision_llm_use_qlora: Optional[bool] = None,
+        vision_llm_dtype: Optional[str] = None,
+        vision_use_lora: Optional[bool] = None,
+        vision_use_qlora: Optional[bool] = None,
+        vision_lora_r: Optional[int] = None,
+        vision_lora_alpha: Optional[int] = None,
+        vision_lora_dropout: Optional[float] = None,
         lora_r: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
         num_lora_layers: Optional[int] = None,
         projector_type: Optional[str] = None,
         projector_num_queries: Optional[int] = None,
+        connector_llm_name: Optional[str] = None,
+        freeze_connector_llm: Optional[bool] = None,
+        connector_llm_use_qlora: Optional[bool] = None,
+        connector_lora_r: Optional[int] = None,
+        connector_lora_alpha: Optional[int] = None,
+        connector_lora_dropout: Optional[float] = None,
         enable_vl_experts: Optional[bool] = None,
         vl_expert_layers: Optional[List[int]] = None,
     ) -> "GigaChatVL":
@@ -1328,11 +2393,46 @@ class GigaChatVL(nn.Module):
             checkpoint_path,
             "vision_processor",
         )
+        vision_encoder_path = _resolve_checkpoint_sidecar_path(
+            checkpoint_path,
+            "vision_encoder.pt",
+        )
+        vision_llm_lora_path = _resolve_checkpoint_sidecar_path(
+            checkpoint_path,
+            "vision_llm_lora",
+        )
+        vision_llm_full_path = _resolve_checkpoint_sidecar_path(
+            checkpoint_path,
+            "vision_llm",
+        )
+        vision_lora_path = _resolve_checkpoint_sidecar_path(
+            checkpoint_path,
+            "vision_lora",
+        )
+        vision_projector_path = _resolve_checkpoint_sidecar_path(
+            checkpoint_path,
+            "vision_projector.pt",
+        )
+        connector_llm_lora_path = _resolve_checkpoint_sidecar_path(
+            checkpoint_path,
+            "connector_llm_lora",
+        )
         vl_experts_path = _resolve_checkpoint_sidecar_path(checkpoint_path, "vl_experts.pt")
 
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         resolved_llm_name = llm_name or meta.get("llm_name")
         resolved_vision_name = vision_name or meta.get("vision_name")
+        resolved_vision_backend = (
+            vision_backend
+            or meta.get("vision_backend_override")
+            or ("patch_llm" if meta.get("vision_backend") == "patch_llm" else None)
+        )
+        if (
+            resolved_vision_backend == "patch_llm"
+            and vision_name is None
+            and vision_llm_full_path is not None
+        ):
+            resolved_vision_name = str(vision_llm_full_path)
         resolved_projector_type = projector_type or meta.get("projector_type") or "qformer"
         resolved_num_lora_layers = num_lora_layers
         if resolved_num_lora_layers is None:
@@ -1342,6 +2442,71 @@ class GigaChatVL(nn.Module):
             resolved_projector_num_queries = meta.get("projector_num_queries")
         if resolved_projector_num_queries is None:
             resolved_projector_num_queries = 32
+        resolved_connector_llm_name = connector_llm_name or meta.get("connector_llm_name")
+        resolved_freeze_connector_llm = freeze_connector_llm
+        if resolved_freeze_connector_llm is None:
+            resolved_freeze_connector_llm = bool(meta.get("freeze_connector_llm", True))
+        resolved_connector_llm_use_qlora = connector_llm_use_qlora
+        if resolved_connector_llm_use_qlora is None:
+            resolved_connector_llm_use_qlora = bool(
+                meta.get("connector_llm_use_qlora", False)
+                or connector_llm_lora_path is not None
+            )
+        resolved_connector_lora_r = connector_lora_r
+        if resolved_connector_lora_r is None:
+            resolved_connector_lora_r = int(meta.get("connector_lora_r", 16))
+        resolved_connector_lora_alpha = connector_lora_alpha
+        if resolved_connector_lora_alpha is None:
+            resolved_connector_lora_alpha = int(meta.get("connector_lora_alpha", 32))
+        resolved_connector_lora_dropout = connector_lora_dropout
+        if resolved_connector_lora_dropout is None:
+            resolved_connector_lora_dropout = float(
+                meta.get("connector_lora_dropout", 0.05)
+            )
+        resolved_vision_image_size = vision_image_size
+        if resolved_vision_image_size is None:
+            resolved_vision_image_size = meta.get("vision_max_side_size")
+        if resolved_vision_image_size is None:
+            resolved_vision_image_size = meta.get("vision_image_size")
+        if resolved_vision_image_size is None:
+            resolved_vision_image_size = DEFAULT_PATCH_VISION_IMAGE_SIZE
+        resolved_vision_patch_size = vision_patch_size
+        if resolved_vision_patch_size is None:
+            resolved_vision_patch_size = meta.get(
+                "vision_patch_size",
+                DEFAULT_PATCH_VISION_PATCH_SIZE,
+            )
+        resolved_vision_conv_hidden_size = vision_conv_hidden_size
+        if resolved_vision_conv_hidden_size is None:
+            resolved_vision_conv_hidden_size = meta.get("vision_conv_hidden_size", 256)
+        resolved_vision_use_maxpool = vision_use_maxpool
+        if resolved_vision_use_maxpool is None:
+            resolved_vision_use_maxpool = bool(meta.get("vision_use_maxpool", False))
+        resolved_vision_llm_use_qlora = vision_llm_use_qlora
+        if resolved_vision_llm_use_qlora is None:
+            resolved_vision_llm_use_qlora = bool(
+                meta.get("vision_llm_use_qlora", False)
+                or vision_llm_lora_path is not None
+            )
+        resolved_vision_llm_dtype = vision_llm_dtype or meta.get("vision_llm_dtype") or "auto"
+        resolved_vision_use_lora = vision_use_lora
+        if resolved_vision_use_lora is None:
+            resolved_vision_use_lora = bool(
+                meta.get("vision_use_lora", False)
+                or vision_lora_path is not None
+            )
+        resolved_vision_use_qlora = vision_use_qlora
+        if resolved_vision_use_qlora is None:
+            resolved_vision_use_qlora = bool(meta.get("vision_use_qlora", False))
+        resolved_vision_lora_r = vision_lora_r
+        if resolved_vision_lora_r is None:
+            resolved_vision_lora_r = int(meta.get("vision_lora_r", 16))
+        resolved_vision_lora_alpha = vision_lora_alpha
+        if resolved_vision_lora_alpha is None:
+            resolved_vision_lora_alpha = int(meta.get("vision_lora_alpha", 32))
+        resolved_vision_lora_dropout = vision_lora_dropout
+        if resolved_vision_lora_dropout is None:
+            resolved_vision_lora_dropout = float(meta.get("vision_lora_dropout", 0.05))
         resolved_enable_vl_experts = enable_vl_experts
         if resolved_enable_vl_experts is None:
             resolved_enable_vl_experts = bool(meta.get("enable_vl_experts", False))
@@ -1359,6 +2524,27 @@ class GigaChatVL(nn.Module):
             raise RuntimeError(
                 "Could not infer vision model path from training metadata. Pass vision_name explicitly."
             )
+        if resolved_projector_type == "llm" and resolved_connector_llm_name is None:
+            raise RuntimeError(
+                "Could not infer connector LLM path from training metadata. "
+                "Pass connector_llm_name explicitly."
+            )
+        if (
+            resolved_projector_type == "llm"
+            and bool(resolved_connector_llm_use_qlora)
+            and connector_llm_lora_path is None
+        ):
+            raise FileNotFoundError(
+                "Could not find connector LLM QLoRA adapter directory "
+                "`connector_llm_lora` next to the checkpoint or in its parent "
+                f"experiment directory: {checkpoint_path}"
+            )
+        if bool(resolved_vision_use_lora) and vision_lora_path is None:
+            raise FileNotFoundError(
+                "Could not find donor vision LoRA adapter directory `vision_lora` "
+                "next to the checkpoint or in its parent experiment directory: "
+                f"{checkpoint_path}"
+            )
 
         model = cls(
             llm_name=resolved_llm_name,
@@ -1366,12 +2552,47 @@ class GigaChatVL(nn.Module):
             tokenizer_name=str(tokenizer_dir) if tokenizer_dir is not None else resolved_llm_name,
             use_4bit_llm=use_4bit_llm,
             freeze_vision=freeze_vision,
+            vision_backend=resolved_vision_backend,
+            vision_image_size=int(resolved_vision_image_size),
+            vision_patch_size=int(resolved_vision_patch_size),
+            vision_conv_hidden_size=int(resolved_vision_conv_hidden_size),
+            vision_use_maxpool=bool(resolved_vision_use_maxpool),
+            vision_llm_use_qlora=bool(resolved_vision_llm_use_qlora),
+            vision_llm_dtype=str(resolved_vision_llm_dtype),
+            vision_use_lora=bool(resolved_vision_use_lora),
+            vision_use_qlora=bool(resolved_vision_use_qlora),
+            vision_lora_r=int(resolved_vision_lora_r),
+            vision_lora_alpha=int(resolved_vision_lora_alpha),
+            vision_lora_dropout=float(resolved_vision_lora_dropout),
+            vision_lora_path=str(vision_lora_path) if vision_lora_path is not None else None,
+            vision_projector_path=(
+                str(vision_projector_path)
+                if vision_projector_path is not None
+                else None
+            ),
+            vision_encoder_path=str(vision_encoder_path) if vision_encoder_path is not None else None,
+            vision_llm_lora_path=(
+                str(vision_llm_lora_path)
+                if vision_llm_lora_path is not None
+                else None
+            ),
             lora_r=lora_r,
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
             num_lora_layers=int(resolved_num_lora_layers),
             projector_type=resolved_projector_type,
             projector_num_queries=int(resolved_projector_num_queries),
+            connector_llm_name=resolved_connector_llm_name,
+            freeze_connector_llm=bool(resolved_freeze_connector_llm),
+            connector_llm_use_qlora=bool(resolved_connector_llm_use_qlora),
+            connector_lora_r=int(resolved_connector_lora_r),
+            connector_lora_alpha=int(resolved_connector_lora_alpha),
+            connector_lora_dropout=float(resolved_connector_lora_dropout),
+            connector_llm_lora_path=(
+                str(connector_llm_lora_path)
+                if connector_llm_lora_path is not None
+                else None
+            ),
             enable_vl_experts=bool(resolved_enable_vl_experts),
             vl_expert_layers=resolved_vl_expert_layers,
             vl_experts_path=(
@@ -1387,11 +2608,40 @@ class GigaChatVL(nn.Module):
         return model
 
     def _load_vision_backend(self, vision_name: str):
-        cfg = AutoConfig.from_pretrained(vision_name, trust_remote_code=False)
-        model_type = getattr(cfg, "model_type", None)
-
         vision_dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
         vision_device = single_device()
+
+        if self.vision_backend_override in {"patch_llm", "conv_llm"}:
+            patch_llm_dtype = _resolve_dtype_choice(
+                self.vision_llm_dtype,
+                default_dtype=vision_dtype,
+            )
+            self.vision_backend = "patch_llm"
+            self.vision_processor = None
+            self.vision_source_model = None
+            self.vision_projector = None
+            self.vision_tower = PatchLLMVisionEncoder(
+                vision_llm_name=vision_name,
+                image_size=self.vision_image_size,
+                patch_size=self.vision_patch_size,
+                conv_hidden_size=self.vision_conv_hidden_size,
+                use_maxpool=self.vision_use_maxpool,
+                use_qlora=self.vision_llm_use_qlora,
+                lora_r=self.vision_lora_r,
+                lora_alpha=self.vision_lora_alpha,
+                lora_dropout=self.vision_lora_dropout,
+                lora_path=self.vision_llm_lora_path,
+                freeze=self.freeze_vision,
+                device=vision_device,
+                dtype=patch_llm_dtype,
+            )
+            self.vision_hidden_size = self.vision_tower.hidden_size
+            if self.vision_encoder_path is not None:
+                self.load_vision_encoder(self.vision_encoder_path)
+            return
+
+        cfg = AutoConfig.from_pretrained(vision_name, trust_remote_code=False)
+        model_type = getattr(cfg, "model_type", None)
 
         # Qwen2.5-VL
         if model_type == "qwen2_5_vl":
@@ -1419,10 +2669,12 @@ class GigaChatVL(nn.Module):
             if self.vision_hidden_size is None:
                 self.vision_hidden_size = getattr(cfg.vision_config, "hidden_size")
 
-            if self.freeze_vision:
-                self.vision_tower.requires_grad_(False)
-            else:
-                self.vision_tower.requires_grad_(True)
+            self._configure_donor_vision_trainability(
+                device=vision_device,
+                dtype=vision_dtype,
+            )
+            if self.vision_projector_path is not None:
+                self._load_vision_projector_state_dict(self.vision_projector_path)
             return
 
         # Qwen3 / Qwen3.5 family
@@ -1522,10 +2774,12 @@ class GigaChatVL(nn.Module):
             if self.vision_hidden_size is None:
                 self.vision_hidden_size = getattr(cfg.vision_config, "hidden_size")
 
-            if self.vision_tower is not None:
-                self.vision_tower.requires_grad_(not self.freeze_vision)
-            if self.vision_projector is not None:
-                self.vision_projector.requires_grad_(not self.freeze_vision)
+            self._configure_donor_vision_trainability(
+                device=vision_device,
+                dtype=vision_dtype,
+            )
+            if self.vision_projector_path is not None:
+                self._load_vision_projector_state_dict(self.vision_projector_path)
             return
 
         # SigLIP / SigLIP2
@@ -1545,7 +2799,12 @@ class GigaChatVL(nn.Module):
 
             vision_config = getattr(cfg, "vision_config", cfg)
             self.vision_hidden_size = getattr(vision_config, "hidden_size")
-            self.vision_tower.requires_grad_(not self.freeze_vision)
+            self._configure_donor_vision_trainability(
+                device=vision_device,
+                dtype=vision_dtype,
+            )
+            if self.vision_projector_path is not None:
+                self._load_vision_projector_state_dict(self.vision_projector_path)
             return
 
         # Gemma4
@@ -1630,16 +2889,18 @@ class GigaChatVL(nn.Module):
                     "Gemma4 processor does not expose image_token. Update transformers."
                 )
 
-            if self.vision_tower is not None:
-                self.vision_tower.requires_grad_(not self.freeze_vision)
-            if self.vision_projector is not None:
-                self.vision_projector.requires_grad_(not self.freeze_vision)
+            self._configure_donor_vision_trainability(
+                device=vision_device,
+                dtype=vision_dtype,
+            )
+            if self.vision_projector_path is not None:
+                self._load_vision_projector_state_dict(self.vision_projector_path)
             return
 
         raise ValueError(
             f"Unsupported vision backend: {vision_name} (model_type={model_type}). "
             "Supported: qwen2_5_vl, qwen3_vl, qwen3_5, qwen3_5_vl, "
-            "siglip, siglip2, gemma4."
+            "siglip, siglip2, gemma4, patch_llm."
         )
 
     def prepare_vision_inputs(self, images: List[Any]) -> Dict[str, torch.Tensor]:
@@ -1713,6 +2974,43 @@ class GigaChatVL(nn.Module):
             )
             return {f"vision_{k}": v for k, v in batch.items()}
 
+        # Trainable patch + small LLM vision encoder
+        if self.vision_backend == "patch_llm":
+            pixel_values_parts = []
+            patch_grid_hw = []
+            for image in images:
+                x = _pil_to_normalized_tensor(
+                    image=image,
+                    max_side_size=self.vision_image_size,
+                )
+                height, width = x.shape[-2:]
+                grid_h = max(1, _ceil_div(int(height), self.vision_patch_size))
+                grid_w = max(1, _ceil_div(int(width), self.vision_patch_size))
+                if self.vision_use_maxpool:
+                    if grid_h % 2 != 0:
+                        grid_h += 1
+                    if grid_w % 2 != 0:
+                        grid_w += 1
+                patch_grid_hw.append((grid_h, grid_w))
+                pixel_values_parts.append(x)
+
+            max_h = max(grid_h for grid_h, _ in patch_grid_hw) * self.vision_patch_size
+            max_w = max(grid_w for _, grid_w in patch_grid_hw) * self.vision_patch_size
+            padded_pixel_values = []
+            for x in pixel_values_parts:
+                pad_h = max_h - x.size(-2)
+                pad_w = max_w - x.size(-1)
+                x = F.pad(x, (0, pad_w, 0, pad_h), value=0.0)
+                padded_pixel_values.append(x)
+
+            return {
+                "vision_pixel_values": torch.stack(padded_pixel_values, dim=0),
+                "vision_patch_grid_hw": torch.tensor(
+                    patch_grid_hw,
+                    dtype=torch.long,
+                ),
+            }
+
         raise RuntimeError(f"Unknown vision backend: {self.vision_backend}")
 
     def _encode_images_qwen25(
@@ -1745,8 +3043,7 @@ class GigaChatVL(nn.Module):
                 )
             return out
 
-        vision_device = next(self.vision_tower.parameters()).device
-        vision_dtype = next(self.vision_tower.parameters()).dtype
+        vision_device, vision_dtype = self._vision_tower_device_dtype()
 
         pixel_values = _maybe_tensor_to(vision_pixel_values, vision_device, vision_dtype)
         image_grid_thw = _maybe_tensor_to(vision_image_grid_thw, vision_device)
@@ -1839,8 +3136,7 @@ class GigaChatVL(nn.Module):
         if self.vision_tower is None:
             raise RuntimeError("This Qwen3-family checkpoint does not expose a raw visual tower.")
 
-        vision_device = next(self.vision_tower.parameters()).device
-        vision_dtype = next(self.vision_tower.parameters()).dtype
+        vision_device, vision_dtype = self._vision_tower_device_dtype()
 
         pixel_values = _maybe_tensor_to(vision_pixel_values, vision_device, vision_dtype)
         image_grid_thw = _maybe_tensor_to(vision_image_grid_thw, vision_device)
@@ -1899,8 +3195,7 @@ class GigaChatVL(nn.Module):
         if self.vision_tower is None:
             raise RuntimeError("SigLIP backend requires a vision_tower.")
 
-        src_device = next(self.vision_tower.parameters()).device
-        src_dtype = next(self.vision_tower.parameters()).dtype
+        src_device, src_dtype = self._vision_tower_device_dtype()
 
         prepared = {}
         for k, v in vision_inputs.items():
@@ -1965,8 +3260,7 @@ class GigaChatVL(nn.Module):
         if self.vision_tower is None or self.vision_projector is None:
             raise RuntimeError("Gemma4 backend requires vision_tower and vision_projector.")
 
-        src_device = next(self.vision_tower.parameters()).device
-        src_dtype = next(self.vision_tower.parameters()).dtype
+        src_device, src_dtype = self._vision_tower_device_dtype()
 
         prepared = {}
         for k, v in vision_inputs.items():
@@ -2054,6 +3348,56 @@ class GigaChatVL(nn.Module):
             out.append(y)
         return out
 
+    def _encode_images_patch_llm(
+        self,
+        vision_pixel_values: torch.Tensor,
+        vision_patch_grid_hw: Optional[torch.Tensor] = None,
+    ) -> List[torch.Tensor]:
+        if self.vision_tower is None or not isinstance(self.vision_tower, PatchLLMVisionEncoder):
+            raise RuntimeError("Patch-LLM backend requires a PatchLLMVisionEncoder.")
+
+        if vision_pixel_values.dim() != 4:
+            raise RuntimeError(
+                "Patch-LLM backend expects vision_pixel_values with shape "
+                f"(batch, 3, H, W), got {tuple(vision_pixel_values.shape)}."
+            )
+
+        out = []
+        projector_device, projector_dtype = _module_device_dtype(self.projector)
+        ctx = torch.no_grad() if self.freeze_vision else nullcontext()
+
+        for i in range(vision_pixel_values.size(0)):
+            pixel_values_i = vision_pixel_values[i : i + 1]
+            if vision_patch_grid_hw is not None:
+                grid_h = int(vision_patch_grid_hw[i, 0].item())
+                grid_w = int(vision_patch_grid_hw[i, 1].item())
+                crop_h = grid_h * self.vision_patch_size
+                crop_w = grid_w * self.vision_patch_size
+                pixel_values_i = pixel_values_i[:, :, :crop_h, :crop_w]
+
+            with ctx:
+                hidden_states_i = self.vision_tower(pixel_values_i)
+
+            if hidden_states_i.dim() != 3 or hidden_states_i.size(0) != 1:
+                raise RuntimeError(
+                    "Unexpected Patch-LLM hidden state shape: "
+                    f"{tuple(hidden_states_i.shape)}"
+                )
+
+            x = hidden_states_i[0]
+            y = self.projector(
+                x.to(
+                    device=projector_device,
+                    dtype=projector_dtype,
+                )
+            )
+            y = y.to(
+                device=self.llm.get_input_embeddings().weight.device,
+                dtype=self.llm.get_input_embeddings().weight.dtype,
+            )
+            out.append(y)
+        return out
+
     def encode_images(
         self,
         vision_pixel_values: Optional[torch.Tensor] = None,
@@ -2095,6 +3439,18 @@ class GigaChatVL(nn.Module):
             if vision_image_grid_thw is not None:
                 gemma_inputs["vision_image_grid_thw"] = vision_image_grid_thw
             return self._encode_images_gemma4(gemma_inputs)
+
+        if self.vision_backend == "patch_llm":
+            if vision_pixel_values is None:
+                vision_pixel_values = vision_kwargs.get("vision_pixel_values")
+            if vision_pixel_values is None:
+                raise ValueError(
+                    "Patch-LLM backend expects vision_pixel_values."
+                )
+            return self._encode_images_patch_llm(
+                vision_pixel_values=vision_pixel_values,
+                vision_patch_grid_hw=vision_kwargs.get("vision_patch_grid_hw"),
+            )
 
         raise RuntimeError(f"Unknown vision backend: {self.vision_backend}")
 
@@ -2484,6 +3840,8 @@ class GigaChatVL(nn.Module):
             flat_image_features = self.encode_images(**vision_kwargs)
         elif self.vision_backend == "gemma4":
             flat_image_features = self.encode_images(**vision_kwargs)
+        elif self.vision_backend == "patch_llm":
+            flat_image_features = self.encode_images(**vision_kwargs)
         else:
             raise RuntimeError(f"Unknown vision backend: {self.vision_backend}")
 
@@ -2515,12 +3873,30 @@ class GigaChatVLForInference(GigaChatVL):
         llm_name: Optional[str] = None,
         vision_name: Optional[str] = None,
         use_4bit_llm: bool = True,
+        vision_backend: Optional[str] = None,
+        vision_image_size: Optional[int] = None,
+        vision_patch_size: Optional[int] = None,
+        vision_conv_hidden_size: Optional[int] = None,
+        vision_use_maxpool: Optional[bool] = None,
+        vision_llm_use_qlora: Optional[bool] = None,
+        vision_llm_dtype: Optional[str] = None,
+        vision_use_lora: Optional[bool] = None,
+        vision_use_qlora: Optional[bool] = None,
+        vision_lora_r: Optional[int] = None,
+        vision_lora_alpha: Optional[int] = None,
+        vision_lora_dropout: Optional[float] = None,
         lora_r: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
         num_lora_layers: Optional[int] = None,
         projector_type: Optional[str] = None,
         projector_num_queries: Optional[int] = None,
+        connector_llm_name: Optional[str] = None,
+        freeze_connector_llm: Optional[bool] = None,
+        connector_llm_use_qlora: Optional[bool] = None,
+        connector_lora_r: Optional[int] = None,
+        connector_lora_alpha: Optional[int] = None,
+        connector_lora_dropout: Optional[float] = None,
         enable_vl_experts: Optional[bool] = None,
         vl_expert_layers: Optional[List[int]] = None,
     ):
@@ -2529,6 +3905,12 @@ class GigaChatVLForInference(GigaChatVL):
         lora_dir = checkpoint_path / "llm_lora"
         projector_path = checkpoint_path / "projector.pt"
         vl_experts_path = checkpoint_path / "vl_experts.pt"
+        vision_encoder_path = checkpoint_path / "vision_encoder.pt"
+        vision_llm_lora_path = checkpoint_path / "vision_llm_lora"
+        vision_llm_full_path = checkpoint_path / "vision_llm"
+        vision_lora_path = checkpoint_path / "vision_lora"
+        vision_projector_path = checkpoint_path / "vision_projector.pt"
+        connector_llm_lora_path = checkpoint_path / "connector_llm_lora"
         tokenizer_dir = checkpoint_path / "tokenizer"
         vision_processor_dir = checkpoint_path / "vision_processor"
 
@@ -2547,7 +3929,18 @@ class GigaChatVLForInference(GigaChatVL):
             adapter_config = json.loads(adapter_config_path.read_text())
 
         resolved_llm_name = llm_name or meta.get("llm_name") or adapter_config.get("base_model_name_or_path")
+        resolved_vision_backend = (
+            vision_backend
+            or meta.get("vision_backend_override")
+            or ("patch_llm" if meta.get("vision_backend") == "patch_llm" else None)
+        )
         resolved_vision_name = vision_name or meta.get("vision_name")
+        if (
+            resolved_vision_backend == "patch_llm"
+            and vision_name is None
+            and vision_llm_full_path.exists()
+        ):
+            resolved_vision_name = str(vision_llm_full_path)
         meta_vision_name = meta.get("vision_name")
         projector_state = torch.load(projector_path, map_location="cpu")
         inferred_projector_type = _infer_projector_type_from_state_dict(projector_state)
@@ -2564,6 +3957,69 @@ class GigaChatVLForInference(GigaChatVL):
             resolved_projector_num_queries = int(projector_state["query_tokens"].shape[1])
         if resolved_projector_num_queries is None:
             resolved_projector_num_queries = 32
+        resolved_connector_llm_name = connector_llm_name or meta.get("connector_llm_name")
+        resolved_freeze_connector_llm = freeze_connector_llm
+        if resolved_freeze_connector_llm is None:
+            resolved_freeze_connector_llm = bool(meta.get("freeze_connector_llm", True))
+        resolved_connector_llm_use_qlora = connector_llm_use_qlora
+        if resolved_connector_llm_use_qlora is None:
+            resolved_connector_llm_use_qlora = bool(
+                meta.get("connector_llm_use_qlora", False)
+                or connector_llm_lora_path.exists()
+            )
+        resolved_connector_lora_r = connector_lora_r
+        if resolved_connector_lora_r is None:
+            resolved_connector_lora_r = int(meta.get("connector_lora_r", 16))
+        resolved_connector_lora_alpha = connector_lora_alpha
+        if resolved_connector_lora_alpha is None:
+            resolved_connector_lora_alpha = int(meta.get("connector_lora_alpha", 32))
+        resolved_connector_lora_dropout = connector_lora_dropout
+        if resolved_connector_lora_dropout is None:
+            resolved_connector_lora_dropout = float(
+                meta.get("connector_lora_dropout", 0.05)
+            )
+        resolved_vision_image_size = vision_image_size
+        if resolved_vision_image_size is None:
+            resolved_vision_image_size = meta.get("vision_max_side_size")
+        if resolved_vision_image_size is None:
+            resolved_vision_image_size = meta.get("vision_image_size")
+        if resolved_vision_image_size is None:
+            resolved_vision_image_size = DEFAULT_PATCH_VISION_IMAGE_SIZE
+        resolved_vision_patch_size = vision_patch_size
+        if resolved_vision_patch_size is None:
+            resolved_vision_patch_size = meta.get(
+                "vision_patch_size",
+                DEFAULT_PATCH_VISION_PATCH_SIZE,
+            )
+        resolved_vision_conv_hidden_size = vision_conv_hidden_size
+        if resolved_vision_conv_hidden_size is None:
+            resolved_vision_conv_hidden_size = meta.get("vision_conv_hidden_size", 256)
+        resolved_vision_use_maxpool = vision_use_maxpool
+        if resolved_vision_use_maxpool is None:
+            resolved_vision_use_maxpool = bool(meta.get("vision_use_maxpool", False))
+        resolved_vision_llm_use_qlora = vision_llm_use_qlora
+        if resolved_vision_llm_use_qlora is None:
+            resolved_vision_llm_use_qlora = bool(
+                meta.get("vision_llm_use_qlora", False) or vision_llm_lora_path.exists()
+            )
+        resolved_vision_llm_dtype = vision_llm_dtype or meta.get("vision_llm_dtype") or "auto"
+        resolved_vision_use_lora = vision_use_lora
+        if resolved_vision_use_lora is None:
+            resolved_vision_use_lora = bool(
+                meta.get("vision_use_lora", False) or vision_lora_path.exists()
+            )
+        resolved_vision_use_qlora = vision_use_qlora
+        if resolved_vision_use_qlora is None:
+            resolved_vision_use_qlora = bool(meta.get("vision_use_qlora", False))
+        resolved_vision_lora_r = vision_lora_r
+        if resolved_vision_lora_r is None:
+            resolved_vision_lora_r = int(meta.get("vision_lora_r", 16))
+        resolved_vision_lora_alpha = vision_lora_alpha
+        if resolved_vision_lora_alpha is None:
+            resolved_vision_lora_alpha = int(meta.get("vision_lora_alpha", 32))
+        resolved_vision_lora_dropout = vision_lora_dropout
+        if resolved_vision_lora_dropout is None:
+            resolved_vision_lora_dropout = float(meta.get("vision_lora_dropout", 0.05))
         resolved_num_lora_layers = num_lora_layers
         if resolved_num_lora_layers is None:
             resolved_num_lora_layers = meta.get("num_lora_layers", -1)
@@ -2590,6 +4046,35 @@ class GigaChatVLForInference(GigaChatVL):
                 "Could not infer vision model path from checkpoint metadata. "
                 "Pass vision_name explicitly."
             )
+        if resolved_vision_backend == "patch_llm" and not vision_encoder_path.exists():
+            raise FileNotFoundError(
+                f"Missing Patch-LLM vision encoder weights: {vision_encoder_path}"
+            )
+        if (
+            resolved_vision_backend == "patch_llm"
+            and bool(resolved_vision_llm_use_qlora)
+            and not vision_llm_lora_path.exists()
+        ):
+            raise FileNotFoundError(
+                f"Missing Patch-LLM vision QLoRA adapter directory: {vision_llm_lora_path}"
+            )
+        if resolved_projector_type == "llm" and resolved_connector_llm_name is None:
+            raise RuntimeError(
+                "Could not infer connector LLM path from checkpoint metadata. "
+                "Pass connector_llm_name explicitly."
+            )
+        if (
+            resolved_projector_type == "llm"
+            and bool(resolved_connector_llm_use_qlora)
+            and not connector_llm_lora_path.exists()
+        ):
+            raise FileNotFoundError(
+                f"Missing connector LLM QLoRA adapter directory: {connector_llm_lora_path}"
+            )
+        if bool(resolved_vision_use_lora) and not vision_lora_path.exists():
+            raise FileNotFoundError(
+                f"Missing donor vision LoRA adapter directory: {vision_lora_path}"
+            )
 
         if vision_name is not None and meta_vision_name is not None and vision_name != meta_vision_name:
             print(
@@ -2604,6 +4089,30 @@ class GigaChatVLForInference(GigaChatVL):
             tokenizer_name=str(tokenizer_dir) if tokenizer_dir.exists() else resolved_llm_name,
             use_4bit_llm=use_4bit_llm,
             freeze_vision=True,
+            vision_backend=resolved_vision_backend,
+            vision_image_size=int(resolved_vision_image_size),
+            vision_patch_size=int(resolved_vision_patch_size),
+            vision_conv_hidden_size=int(resolved_vision_conv_hidden_size),
+            vision_use_maxpool=bool(resolved_vision_use_maxpool),
+            vision_llm_use_qlora=bool(resolved_vision_llm_use_qlora),
+            vision_llm_dtype=str(resolved_vision_llm_dtype),
+            vision_use_lora=bool(resolved_vision_use_lora),
+            vision_use_qlora=bool(resolved_vision_use_qlora),
+            vision_lora_r=int(resolved_vision_lora_r),
+            vision_lora_alpha=int(resolved_vision_lora_alpha),
+            vision_lora_dropout=float(resolved_vision_lora_dropout),
+            vision_lora_path=str(vision_lora_path) if vision_lora_path.exists() else None,
+            vision_projector_path=(
+                str(vision_projector_path)
+                if vision_projector_path.exists()
+                else None
+            ),
+            vision_encoder_path=str(vision_encoder_path) if vision_encoder_path.exists() else None,
+            vision_llm_lora_path=(
+                str(vision_llm_lora_path)
+                if vision_llm_lora_path.exists()
+                else None
+            ),
             lora_r=lora_r,
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
@@ -2612,6 +4121,17 @@ class GigaChatVLForInference(GigaChatVL):
             projector_path=str(projector_path) if projector_path.exists() else None,
             projector_type=resolved_projector_type,
             projector_num_queries=int(resolved_projector_num_queries),
+            connector_llm_name=resolved_connector_llm_name,
+            freeze_connector_llm=bool(resolved_freeze_connector_llm),
+            connector_llm_use_qlora=bool(resolved_connector_llm_use_qlora),
+            connector_lora_r=int(resolved_connector_lora_r),
+            connector_lora_alpha=int(resolved_connector_lora_alpha),
+            connector_lora_dropout=float(resolved_connector_lora_dropout),
+            connector_llm_lora_path=(
+                str(connector_llm_lora_path)
+                if connector_llm_lora_path.exists()
+                else None
+            ),
             enable_vl_experts=bool(resolved_enable_vl_experts),
             vl_expert_layers=resolved_vl_expert_layers,
             vl_experts_path=(

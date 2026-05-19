@@ -14,7 +14,9 @@ def save_artifacts(model: GigaChatVL, output_dir: str):
     model.save_training_setup(output_dir)
 
     model.llm.save_pretrained(lora_dir)
-    torch.save(model.projector.state_dict(), projector_path)
+    torch.save(model.projector_state_dict(), projector_path)
+    model.save_vision_encoder(output_dir)
+    model.save_connector_llm(output_dir)
     if getattr(model, "enable_vl_experts", False):
         model.save_vl_experts(vl_experts_path)
 
