@@ -105,7 +105,17 @@ async def chat_completions(request: Request):
         temperature = body.get("temperature", 0.7)
         top_p = body.get("top_p", 0.9)
 
-        do_sample = temperature > 0.0 or top_p < 1.0
+        try:
+            temperature = float(temperature)
+        except (TypeError, ValueError):
+            temperature = 0.7
+
+        try:
+            top_p = float(top_p)
+        except (TypeError, ValueError):
+            top_p = 1.0
+
+        do_sample = temperature > 0.0
 
         prompt, image = process_openai_message(messages)
 
