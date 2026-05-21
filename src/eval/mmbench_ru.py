@@ -1,11 +1,54 @@
+import base64
+import io
+import re
+from pathlib import Path
+
+from huggingface_hub import hf_hub_download
+from PIL import Image
+import pandas as pd
+
 from vlmeval.dataset import ImageMCQDataset # type: ignore
 from vlmeval.smp.file import LMUDataRoot # type: ignore
-import pandas as pd
-from pathlib import Path
-from huggingface_hub import hf_hub_download
-import base64
-from PIL import Image
-import io
+from vlmeval.smp import load, dump # type: ignore
+
+
+RU2LAT = {
+    "А": "A", "а": "A",
+    "Б": "B", "б": "B",
+    "В": "C", "в": "C",
+    "Г": "D", "г": "D",
+    "Д": "E", "д": "E",
+}
+
+LAT2RU = {
+    "A": "А",
+    "B": "Б",
+    "C": "В",
+    "D": "Г",
+    "E": "Д",
+}
+
+def normalize_ru_mcq_prediction(pred):
+    if pd.isna(pred):
+        return pred
+
+    s = str(pred).strip()
+
+    if s in RU2LAT:
+        return RU2LAT[s]
+
+    m = re.search(
+        r"(?i)(?:ответ|вариант|выбор)?\s*[:\-–—]?\s*[\(\[]?\s*([АБВГДабвгд])\s*[\)\].,:;!?]?",
+        s,
+    )
+    if m:
+        return RU2LAT[m.group(1)]
+
+    m = re.search(r"\b([ABCDE])\b", s.upper())
+    if m:
+        return m.group(1)
+
+    return s
 
 def encode_image_to_base64(image_path):
     img = Image.open(image_path).convert("RGB")
@@ -96,6 +139,21 @@ class MMBenchRU(ImageMCQDataset):
     def load_data(self, dataset):
         self.prepare_dataset()
         return super().load_data(dataset)
+    
+    def evaluate(self, eval_file, **judge_kwargs):
+        suffix = eval_file.split(".")[-1]
+        data = load(eval_file)
+
+        if "prediction" in data:
+            data["prediction"] = data["prediction"].apply(normalize_ru_mcq_prediction)
+
+        normalized_eval_file = eval_file.replace(
+            f".{suffix}",
+            f"_ru_normalized.{suffix}",
+        )
+        dump(data, normalized_eval_file)
+
+        return super().evaluate(normalized_eval_file, **judge_kwargs)
 
     def build_prompt(self, line):
         if isinstance(line, dict):
@@ -114,13 +172,13 @@ class MMBenchRU(ImageMCQDataset):
         prompt = ""
         if pd.notna(line.get("hint")) and str(line["hint"]).strip():
             prompt += f"Подсказка: {line['hint']}\n\n"
-        prompt = f"Вопрос: {line['question']}\n\n"
+        prompt += f"Вопрос: {line['question']}\n\n"
         prompt += (
-            f"A. {line['A']}\n"
-            f"B. {line['B']}\n"
-            f"C. {line['C']}\n"
-            f"D. {line['D']}\n\n"
-            "Выбери правильный вариант и ответь **только одной буквой**: A, B, C или D."
+            f"А. {line['A']}\n"
+            f"Б. {line['B']}\n"
+            f"В. {line['C']}\n"
+            f"Г. {line['D']}\n\n"
+            "Выбери правильный вариант и ответь только одной русской буквой: А, Б, В или Г."
         )
 
         content = []
