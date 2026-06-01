@@ -1,11 +1,17 @@
 import os
 
 import torch
+from transformers import TrainerCallback
 
 from src.model.gigachat_vl import GigaChatVL
 
 
+def _unwrap_model(model):
+    return getattr(model, "module", model)
+
+
 def save_artifacts(model: GigaChatVL, output_dir: str):
+    model = _unwrap_model(model)
     os.makedirs(output_dir, exist_ok=True)
 
     lora_dir = os.path.join(output_dir, "llm_lora")
@@ -22,4 +28,22 @@ def save_artifacts(model: GigaChatVL, output_dir: str):
 
 
 def save_training_setup(model: GigaChatVL, output_dir: str):
+    model = _unwrap_model(model)
     model.save_training_setup(output_dir)
+
+
+class SaveVLMArtifactsCallback(TrainerCallback):
+    def on_save(self, args, state, control, **kwargs):
+        if not args.should_save:
+            return control
+
+        model = kwargs.get("model")
+        if model is None:
+            return control
+
+        checkpoint_dir = os.path.join(
+            args.output_dir,
+            f"checkpoint-{state.global_step}",
+        )
+        save_artifacts(model, checkpoint_dir)
+        return control

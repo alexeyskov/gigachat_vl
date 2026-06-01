@@ -14,6 +14,62 @@ from src.dataset.finevision import open_image
 from src.dataset.dataset_base import DatasetConfig
 
 
+GQA_IMAGE_PARQUET_DIRS = ["train_balanced_images", "testdev_balanced_images"]
+
+
+def _extract_gqa_images_from_parquets(
+    dataset_root_path: Path,
+    force_redownload: bool = False,
+    cleanup_parquets: bool = False,
+) -> None:
+    images_dir = dataset_root_path / "images"
+    images_dir.mkdir(exist_ok=True)
+
+    found_parquets = False
+    print(f"Extracting GQA images to {images_dir} ...")
+
+    for subdir_name in GQA_IMAGE_PARQUET_DIRS:
+        subdir_path = dataset_root_path / subdir_name
+        if not subdir_path.exists():
+            continue
+
+        parquet_files = sorted(subdir_path.glob("*.parquet"))
+        if parquet_files:
+            found_parquets = True
+
+        for parquet_path in parquet_files:
+            print(f"  Processing {parquet_path.name} ...")
+
+            ds = load_dataset(
+                "parquet",
+                data_files=str(parquet_path),
+                streaming=True,
+                split="train",
+            )
+
+            for row in ds:
+                img_id = row["id"]
+                image = row["image"]
+                img_path = images_dir / f"{img_id}.jpg"
+
+                if not img_path.exists() or force_redownload:
+                    image.save(str(img_path), format="JPEG", quality=92)
+
+        if cleanup_parquets and subdir_path.exists():
+            shutil.rmtree(subdir_path, ignore_errors=True)
+
+    if not found_parquets:
+        raise ValueError(
+            "GQA image parquet directories were not found under "
+            f"{dataset_root_path}. Expected one of: {GQA_IMAGE_PARQUET_DIRS}"
+        )
+
+    print(
+        f"Image extraction completed. "
+        f"{len(list(images_dir.iterdir())):,} images available in {images_dir}"
+    )
+
+
 def download_gqa_ru(
     dataset_root: str,
     force_redownload: bool = False,
@@ -55,43 +111,11 @@ def download_gqa_ru(
 
     # 2. Extract images from parquet files into flat images/ directory
     if not images_dir.exists() or force_redownload or not any(images_dir.iterdir()):
-        images_dir.mkdir(exist_ok=True)
-        print("Extracting images from parquet files...")
-
-        image_parquet_dirs = ["train_balanced_images", "testdev_balanced_images"]
-
-        for subdir_name in image_parquet_dirs:
-            subdir_path = dataset_root_path / subdir_name
-            if not subdir_path.exists():
-                continue
-
-            parquet_files = list(subdir_path.glob("*.parquet"))
-            for parquet_path in parquet_files:
-                print(f"  Processing {parquet_path.name} ...")
-
-                ds = load_dataset(
-                    "parquet",
-                    data_files=str(parquet_path),
-                    streaming=True,
-                    split="train",
-                )
-
-                for row in ds:
-                    img_id = row["id"]
-                    image = row["image"]                    # PIL.Image
-                    img_path = images_dir / f"{img_id}.jpg"
-
-                    if not img_path.exists() or force_redownload:
-                        image.save(str(img_path), format="JPEG", quality=92)
-
-        # 3. Clean up: remove original image parquet directories to save disk space
-        print("Cleaning up original image parquet files...")
-        for subdir_name in image_parquet_dirs:
-            subdir_path = dataset_root_path / subdir_name
-            if subdir_path.exists():
-                shutil.rmtree(subdir_path, ignore_errors=True)
-
-        print(f"Image extraction completed. {len(list(images_dir.iterdir())):,} images saved to {images_dir}")
+        _extract_gqa_images_from_parquets(
+            dataset_root_path=dataset_root_path,
+            force_redownload=force_redownload,
+            cleanup_parquets=True,
+        )
 
 
 def load_gqa_ru(
@@ -117,6 +141,15 @@ def load_gqa_ru(
         os.path.join(dataset_root, "train_balanced_instructions"),
         os.path.join(dataset_root, "testdev_balanced_instructions"),
     ]
+    dataset_root_path = Path(dataset_root)
+    images_dir = dataset_root_path / "images"
+
+    if not images_dir.exists() or not any(images_dir.iterdir()):
+        _extract_gqa_images_from_parquets(
+            dataset_root_path=dataset_root_path,
+            force_redownload=False,
+            cleanup_parquets=False,
+        )
 
     all_parquet_files = []
 
