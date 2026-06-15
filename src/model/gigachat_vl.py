@@ -75,19 +75,68 @@ def _has_4bit_parameters(module: nn.Module) -> bool:
     return False
 
 
+def _set_requires_grad_on_tensor_outputs(output: Any) -> Any:
+    if torch.is_tensor(output):
+        if output.is_floating_point() or output.is_complex():
+            output.requires_grad_(True)
+        return output
+    if isinstance(output, tuple):
+        return tuple(_set_requires_grad_on_tensor_outputs(item) for item in output)
+    if isinstance(output, list):
+        return [_set_requires_grad_on_tensor_outputs(item) for item in output]
+    if isinstance(output, dict):
+        return {key: _set_requires_grad_on_tensor_outputs(value) for key, value in output.items()}
+    return output
+
+
+def _register_output_require_grads_hook(module: nn.Module) -> None:
+    def make_outputs_require_grad(_module, _inputs, output):
+        return _set_requires_grad_on_tensor_outputs(output)
+
+    module.register_forward_hook(make_outputs_require_grad)
+
+
+def _maybe_register_input_require_grads_hook(model: nn.Module) -> bool:
+    if hasattr(model, "enable_input_require_grads"):
+        try:
+            model.enable_input_require_grads()
+            return True
+        except NotImplementedError:
+            pass
+
+    if hasattr(model, "get_input_embeddings"):
+        try:
+            input_embeddings = model.get_input_embeddings()
+        except NotImplementedError:
+            input_embeddings = None
+        if input_embeddings is not None:
+            _register_output_require_grads_hook(input_embeddings)
+            return True
+
+    vision_embedding_paths = [
+        "patch_embed",
+        "patch_embedder",
+        "vision_model.embeddings",
+        "embeddings",
+    ]
+    for path in vision_embedding_paths:
+        current = model
+        for part in path.split("."):
+            current = getattr(current, part, None)
+            if current is None:
+                break
+        if isinstance(current, nn.Module):
+            _register_output_require_grads_hook(current)
+            return True
+
+    return False
+
+
 def _prepare_model_for_kbit_training_no_fp32_cast(model: nn.Module) -> nn.Module:
     for param in model.parameters():
         param.requires_grad = False
 
-    if hasattr(model, "enable_input_require_grads"):
-        model.enable_input_require_grads()
-    elif hasattr(model, "get_input_embeddings"):
-        def make_inputs_require_grad(module, input, output):
-            output.requires_grad_(True)
-
-        input_embeddings = model.get_input_embeddings()
-        if input_embeddings is not None:
-            input_embeddings.register_forward_hook(make_inputs_require_grad)
+    _maybe_register_input_require_grads_hook(model)
 
     if hasattr(model, "gradient_checkpointing_enable"):
         try:
@@ -500,22 +549,74 @@ def _prepare_qwen_images_batch(
         )
 
     if pixel_values.dim() == 3:
-        pixel_values = _compact_qwen_padded_pixel_values(pixel_values, grid)
+        expected_rows = [int(x) for x in grid.prod(dim=-1).tolist()]
+        if pixel_values.size(0) != len(expected_rows):
+            raise RuntimeError(
+                "Qwen batched preprocessing returned a 3D tensor whose first "
+                f"dimension does not match the grid batch: "
+                f"pixel_values_shape={tuple(pixel_values.shape)}, "
+                f"grid_shape={tuple(grid.shape)}."
+            )
+        if any(rows > pixel_values.size(1) for rows in expected_rows):
+            raise RuntimeError(
+                "Qwen batched preprocessing returned too few padded rows for "
+                f"the grid: pixel_values_shape={tuple(pixel_values.shape)}, "
+                f"grid={grid.tolist()}."
+            )
     elif pixel_values.dim() > 2:
         pixel_values = pixel_values.reshape(-1, pixel_values.shape[-1])
 
-    expected_rows = int(grid.prod(dim=-1).sum().item())
-    if pixel_values.dim() != 2 or pixel_values.size(0) != expected_rows:
+    if pixel_values.dim() == 2:
+        pixel_values = _pad_qwen_flat_pixel_values(pixel_values, grid)
+    elif pixel_values.dim() != 3:
         raise RuntimeError(
-            "Qwen batched preprocessing produced inconsistent patch rows "
-            f"(got {tuple(pixel_values.shape)}, expected_rows={expected_rows}) "
-            f"for {len(images)} images."
+            "Qwen batched preprocessing produced unexpected pixel_values shape "
+            f"{tuple(pixel_values.shape)} for {len(images)} images."
         )
 
     return {
         "pixel_values": pixel_values,
         "grid": grid,
     }
+
+
+def _pad_qwen_flat_pixel_values(
+    pixel_values: torch.Tensor,
+    image_grid_thw: torch.Tensor,
+) -> torch.Tensor:
+    if pixel_values.dim() != 2:
+        raise ValueError(
+            "Expected flat Qwen pixel_values with shape (rows, dim), "
+            f"got {tuple(pixel_values.shape)}"
+        )
+    if image_grid_thw.dim() != 2:
+        raise ValueError(
+            "Expected image_grid_thw with shape (batch, 3), "
+            f"got {tuple(image_grid_thw.shape)}"
+        )
+
+    row_counts = [int(x) for x in image_grid_thw.prod(dim=-1).tolist()]
+    expected_rows = sum(row_counts)
+    if pixel_values.size(0) != expected_rows:
+        raise RuntimeError(
+            "Qwen preprocessing produced inconsistent patch rows "
+            f"(got {tuple(pixel_values.shape)}, expected_rows={expected_rows}) "
+            f"for grid={image_grid_thw.tolist()}."
+        )
+
+    if not row_counts:
+        return pixel_values.new_empty((0, 0, pixel_values.size(-1)))
+
+    max_rows = max(row_counts)
+    chunks = list(torch.split(pixel_values, row_counts, dim=0))
+    padded_chunks = []
+    for chunk, rows in zip(chunks, row_counts):
+        if rows < max_rows:
+            pad = chunk.new_zeros((max_rows - rows, chunk.size(-1)))
+            chunk = torch.cat([chunk, pad], dim=0)
+        padded_chunks.append(chunk)
+
+    return torch.stack(padded_chunks, dim=0)
 
 
 def _compact_qwen_padded_pixel_values(
@@ -1742,6 +1843,19 @@ class LLMProjector(nn.Module):
         if self.freeze_connector_llm:
             self.connector_llm.eval()
         return self
+
+    def gradient_checkpointing_enable(
+        self,
+        gradient_checkpointing_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Enable gradient checkpointing on the connector LLM when it is trainable."""
+        if not self.freeze_connector_llm:
+            _toggle_gradient_checkpointing(self.connector_llm, enabled=True)
+
+    def gradient_checkpointing_disable(self) -> None:
+        """Disable gradient checkpointing on the connector LLM when it is trainable."""
+        if not self.freeze_connector_llm:
+            _toggle_gradient_checkpointing(self.connector_llm, enabled=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         squeeze = False
@@ -3477,9 +3591,13 @@ class GigaChatVL(nn.Module):
                     image_batch = _prepare_single_qwen_image(self.vision_processor, image)
                     pixel_values_parts.append(image_batch["pixel_values"])
                     grid_parts.append(image_batch["grid"])
+                grid = torch.cat(grid_parts, dim=0)
                 image_batch = {
-                    "pixel_values": torch.cat(pixel_values_parts, dim=0),
-                    "grid": torch.cat(grid_parts, dim=0),
+                    "pixel_values": _pad_qwen_flat_pixel_values(
+                        torch.cat(pixel_values_parts, dim=0),
+                        grid,
+                    ),
+                    "grid": grid,
                 }
 
             return {
@@ -4677,14 +4795,37 @@ class GigaChatVL(nn.Module):
             if vision_trainable:
                 _toggle_gradient_checkpointing(self.vision_tower, enabled=True)
 
+        if isinstance(self.projector, LLMProjector):
+            self.projector.gradient_checkpointing_enable()
+
         return self
 
     def gradient_checkpointing_disable(self):
         _toggle_gradient_checkpointing(self.llm, enabled=False)
 
         if self.vision_tower is not None:
-            _toggle_gradient_checkpointing(self.vision_tower, enabled=False)
+            vision_trainable = any(p.requires_grad for p in self.vision_tower.parameters())
+            if vision_trainable:
+                _toggle_gradient_checkpointing(self.vision_tower, enabled=False)
 
+        if isinstance(self.projector, LLMProjector):
+            self.projector.gradient_checkpointing_disable()
+
+        return self
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        # Keep frozen donor vision modules in eval mode so that attention
+        # dropout (and any other train/eval-sensitive layers) inside the
+        # frozen vision encoder do not produce stochastic features during
+        # training. Without this override, Trainer.train() recursively sets
+        # every submodule to training mode, undoing the eval() call made in
+        # _configure_donor_vision_trainability().
+        if self.freeze_vision:
+            if self.vision_tower is not None:
+                self.vision_tower.eval()
+            if self.vision_projector is not None:
+                self.vision_projector.eval()
         return self
 
     def forward(
