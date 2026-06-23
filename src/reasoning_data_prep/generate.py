@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import hashlib
+import inspect
 import json
 from pathlib import Path
 from typing import Any, Optional
@@ -49,6 +50,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-retries", type=int, default=3)
     parser.add_argument("--download", action="store_true")
     parser.add_argument("--force-redownload", action="store_true")
+    parser.add_argument("--max-source-shards", type=int, default=2)
     return parser.parse_args()
 
 
@@ -75,11 +77,15 @@ async def main() -> None:
     if args.download:
         if args.dataset_root is None:
             raise ValueError("--dataset-root is required when --download is set")
-        config.download_func(
-            dataset_root=args.dataset_root,
-            force_redownload=args.force_redownload,
-            hf_token=_settings_hf_token(),
-        )
+        download_kwargs = {
+            "dataset_root": args.dataset_root,
+            "force_redownload": args.force_redownload,
+            "hf_token": _settings_hf_token(),
+        }
+        if _supports_kwarg(config.download_func, "num_shards") and args.max_source_shards is not None:
+            download_kwargs["num_shards"] = args.max_source_shards
+
+        config.download_func(**download_kwargs)
 
     dataset = config.load_func(
         limit=args.limit,
@@ -273,6 +279,15 @@ def _settings_hf_token() -> Optional[str]:
     if SETTINGS.HF_TOKEN is None:
         return None
     return SETTINGS.HF_TOKEN.get_secret_value()
+
+
+def _supports_kwarg(func: Any, arg_name: str) -> bool:
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return False
+
+    return arg_name in signature.parameters
 
 
 if __name__ == "__main__":
