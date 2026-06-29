@@ -58,6 +58,11 @@ from src.dataset.chartqa_en import (
     load_chartqa_en,
     ChartQAEnIterableDataset,
 )
+from src.dataset.ru_vlm_reasoning_sft import (
+    download_ru_vlm_reasoning_sft,
+    load_ru_vlm_reasoning_sft,
+    RuVLMReasoningSFTIterableDataset,
+)
 
 
 class SupportedDatasets(Enum):
@@ -171,6 +176,15 @@ class SupportedDatasets(Enum):
         requires_download=True,
     )
 
+    RU_VLM_REASONING_SFT = DatasetConfig(
+        name="mnezhinskii/ru-vlm-reasoning-sft",
+        total_samples=3_338,
+        load_raw_func=load_ru_vlm_reasoning_sft,
+        dataset_class=RuVLMReasoningSFTIterableDataset,
+        download_func=download_ru_vlm_reasoning_sft,
+        requires_download=True,
+    )
+
 
 class MixedTorchIterableDataset(TorchIterableDataset):
     """
@@ -231,12 +245,12 @@ def load_merged_dataset(
         dataset_specs: List of dicts, one per dataset. Example:
             [
                 {
-                    "config": VLSource.LLAVA_PRETRAIN_RU.value,
+                    "config": SupportedDatasets.LLAVA_PRETRAIN_RU.value,
                     "limit": 200_000,          # or None (use full dataset)
                     "dataset_root": "data/llava_pretrain_ru",   # required for datasets with requires_download=True
                 },
                 {
-                    "config": VLSource.MSCOCO_CAPTION_RU.value,
+                    "config": SupportedDatasets.MSCOCO_CAPTION_RU.value,
                     "limit": None,
                     "dataset_root": "data/mscoco_caption_ru",
                 },
