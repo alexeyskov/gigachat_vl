@@ -12,7 +12,7 @@ class Settings(BaseModel):
     TEACHER_API_KEY: SecretStr
     TEACHER_BASE_URL: str
     TEACHER_MODEL: str
-    TEACHER_TIMEOUT_SECONDS: float = 180.0
+    TEACHER_TIMEOUT_SECONDS: float = 45.0
     HF_TOKEN: Optional[SecretStr] = None
     HF_REPO_ID: Optional[str] = None
 

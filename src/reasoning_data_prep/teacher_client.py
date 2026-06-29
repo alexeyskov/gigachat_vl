@@ -22,10 +22,11 @@ class TeacherClient:
         timeout: Optional[float] = None,
     ) -> None:
         self.model = model or SETTINGS.TEACHER_MODEL
+        self.timeout_seconds = timeout or SETTINGS.TEACHER_TIMEOUT_SECONDS
         self.client = AsyncOpenAI(
             api_key=api_key or SETTINGS.TEACHER_API_KEY.get_secret_value(),
             base_url=base_url or SETTINGS.TEACHER_BASE_URL,
-            timeout=timeout or SETTINGS.TEACHER_TIMEOUT_SECONDS,
+            timeout=self.timeout_seconds,
         )
 
     async def generate_reasoning_batch(
@@ -67,11 +68,19 @@ class TeacherClient:
         self,
         messages: list[dict[str, Any]],
     ) -> ReasoningStructuredOutput:
-        response = await self.client.beta.chat.completions.parse(
-            model=self.model,
-            messages=messages,
-            response_format=ReasoningStructuredOutput,
-        )
+        try:
+            response = await asyncio.wait_for(
+                self.client.beta.chat.completions.parse(
+                    model=self.model,
+                    messages=messages,
+                    response_format=ReasoningStructuredOutput,
+                ),
+                timeout=self.timeout_seconds,
+            )
+        except asyncio.TimeoutError as e:
+            raise RuntimeError(
+                f"Teacher request timed out after {self.timeout_seconds} seconds"
+            ) from e
 
         parsed = response.choices[0].message.parsed
         if parsed is None:

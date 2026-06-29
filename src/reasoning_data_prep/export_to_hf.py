@@ -1,3 +1,7 @@
+import sys
+sys.path.append("/home/ymayma/projects/vlm-research/gigachat_vl")
+
+
 import argparse
 import json
 from pathlib import Path
@@ -5,6 +9,7 @@ from typing import Iterator, Optional
 
 from datasets import Dataset, Features, Image, Value
 from huggingface_hub import HfApi
+from tqdm import tqdm
 
 from src.reasoning_data_prep.settings import SETTINGS
 
@@ -32,9 +37,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export staged reasoning records to HF-friendly parquet shards.",
     )
-    parser.add_argument("--input-dir", required=True)
+    parser.add_argument("--input-dir", required=False, default="/home/ymayma/projects/vlm-research/data/reasoning/mme_en")
     parser.add_argument("--split", default="train")
-    parser.add_argument("--export-batch-size", type=int, default=256)
+    parser.add_argument("--export-batch-size", type=int, default=512)
     parser.add_argument("--push-to-hub", action="store_true")
     parser.add_argument("--repo-id", default=None)
     parser.add_argument("--repo-type", default="dataset")
@@ -54,27 +59,30 @@ def main() -> None:
     export_dir = input_dir / "hf_export"
     export_dir.mkdir(parents=True, exist_ok=True)
 
+    total_records = _count_records(records_path)
     shard_index = 0
     batch: list[dict] = []
-    for row in _iter_rows(records_path, input_dir):
-        batch.append(row)
-        if len(batch) >= args.export_batch_size:
+    with tqdm(total=total_records, desc=f"Exporting {input_dir.name}", unit="record") as pbar:
+        for row in _iter_rows(records_path, input_dir):
+            batch.append(row)
+            pbar.update(1)
+            if len(batch) >= args.export_batch_size:
+                _write_parquet_shard(
+                    rows=batch,
+                    export_dir=export_dir,
+                    split=args.split,
+                    shard_index=shard_index,
+                )
+                shard_index += 1
+                batch = []
+
+        if batch:
             _write_parquet_shard(
                 rows=batch,
                 export_dir=export_dir,
                 split=args.split,
                 shard_index=shard_index,
             )
-            shard_index += 1
-            batch = []
-
-    if batch:
-        _write_parquet_shard(
-            rows=batch,
-            export_dir=export_dir,
-            split=args.split,
-            shard_index=shard_index,
-        )
 
     if args.push_to_hub:
         repo_id = args.repo_id or SETTINGS.HF_REPO_ID
@@ -96,13 +104,13 @@ def _iter_rows(records_path: Path, input_dir: Path) -> Iterator[dict]:
                 continue
 
             record = json.loads(line)
-            image_path = _resolve_image_path(record.get("image_path"), input_dir)
+            image_payload = _load_image_payload(record.get("image_path"), input_dir)
 
             yield {
                 "record_id": record["record_id"],
                 "source_dataset": record["source_dataset"],
                 "source_sample_id": record["source_sample_id"],
-                "image": image_path,
+                "image": image_payload,
                 "question_ru": record["question_ru"],
                 "reasoning_ru": record.get("reasoning_ru"),
                 "answer_ru": record["answer_ru"],
@@ -113,17 +121,30 @@ def _iter_rows(records_path: Path, input_dir: Path) -> Iterator[dict]:
             }
 
 
-def _resolve_image_path(
+def _count_records(records_path: Path) -> int:
+    total = 0
+    with records_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                total += 1
+    return total
+
+
+def _load_image_payload(
     image_path: Optional[str],
     input_dir: Path,
-) -> Optional[str]:
+) -> Optional[dict[str, object]]:
     if not image_path:
         return None
 
     resolved = (input_dir / image_path).resolve()
     if not resolved.exists():
         raise FileNotFoundError(f"Image file not found: {resolved}")
-    return str(resolved)
+
+    return {
+        "bytes": resolved.read_bytes(),
+        "path": None,
+    }
 
 
 def _write_parquet_shard(

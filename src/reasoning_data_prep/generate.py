@@ -43,14 +43,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--dataset-root", default=None)
     parser.add_argument("--split", default="train")
-    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--limit", type=int, default=500)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--retry-delay-seconds", type=float, default=3.0)
-    parser.add_argument("--max-retries", type=int, default=3)
+    parser.add_argument("--max-retries", type=int, default=0)
+    parser.add_argument("--teacher-timeout-seconds", type=float, default=None)
     parser.add_argument("--download", action="store_true")
     parser.add_argument("--force-redownload", action="store_true")
-    parser.add_argument("--max-source-shards", type=int, default=2)
+    parser.add_argument("--max-source-shards", type=int, default=4)
     return parser.parse_args()
 
 
@@ -88,7 +89,7 @@ async def main() -> None:
         config.download_func(**download_kwargs)
 
     dataset = config.load_func(
-        limit=args.limit,
+        limit=None,
         dataset_root=args.dataset_root,
         seed=args.seed,
     )
@@ -96,6 +97,9 @@ async def main() -> None:
     pending_requests: list[ReasoningRequest] = []
 
     for sample in dataset:
+        if _limit_reached(args.limit, completed_ids):
+            break
+
         try:
             build_result = config.build_request_func(sample)
             source_sample_id = build_result.source_sample_id
@@ -112,10 +116,19 @@ async def main() -> None:
                 )
             elif isinstance(build_result, ReasoningRequest):
                 pending_requests.append(build_result)
-                if len(pending_requests) >= args.batch_size:
+                remaining_slots = _remaining_slots(args.limit, completed_ids)
+                should_flush = len(pending_requests) >= args.batch_size
+                if remaining_slots is not None and len(pending_requests) >= remaining_slots:
+                    should_flush = True
+
+                if should_flush:
+                    requests_to_flush = pending_requests
+                    if remaining_slots is not None:
+                        requests_to_flush = pending_requests[:remaining_slots]
+
                     await _flush_requests(
                         client=client,
-                        requests=pending_requests,
+                        requests=requests_to_flush,
                         records_path=records_path,
                         images_dir=images_dir,
                         errors_path=errors_path,
@@ -125,6 +138,9 @@ async def main() -> None:
                         max_retries=args.max_retries,
                     )
                     pending_requests.clear()
+
+                    if _limit_reached(args.limit, completed_ids):
+                        break
                 continue
             else:
                 raise TypeError(f"Unexpected build result: {type(build_result)}")
@@ -137,10 +153,15 @@ async def main() -> None:
                 },
             )
 
-    if pending_requests:
+    if pending_requests and not _limit_reached(args.limit, completed_ids):
+        requests_to_flush = pending_requests
+        remaining_slots = _remaining_slots(args.limit, completed_ids)
+        if remaining_slots is not None:
+            requests_to_flush = pending_requests[:remaining_slots]
+
         await _flush_requests(
             client=client,
-            requests=pending_requests,
+            requests=requests_to_flush,
             records_path=records_path,
             images_dir=images_dir,
             errors_path=errors_path,
@@ -279,6 +300,24 @@ def _settings_hf_token() -> Optional[str]:
     if SETTINGS.HF_TOKEN is None:
         return None
     return SETTINGS.HF_TOKEN.get_secret_value()
+
+
+def _remaining_slots(
+    limit: Optional[int],
+    completed_ids: set[str],
+) -> Optional[int]:
+    if limit is None:
+        return None
+    return max(limit - len(completed_ids), 0)
+
+
+def _limit_reached(
+    limit: Optional[int],
+    completed_ids: set[str],
+) -> bool:
+    if limit is None:
+        return False
+    return len(completed_ids) >= limit
 
 
 def _supports_kwarg(func: Any, arg_name: str) -> bool:
