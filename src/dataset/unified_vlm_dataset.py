@@ -58,14 +58,11 @@ from src.dataset.chartqa_en import (
     load_chartqa_en,
     ChartQAEnIterableDataset,
 )
-from src.dataset.smoltalk2 import (
-    download_smoltalk2,
-    load_smoltalk2_mid,
-    load_smoltalk2_preference,
-    load_smoltalk2_sft,
-    SmolTalk2IterableDataset,
+from src.dataset.ru_vlm_reasoning_sft import (
+    download_ru_vlm_reasoning_sft,
+    load_ru_vlm_reasoning_sft,
+    RuVLMReasoningSFTIterableDataset,
 )
-from src.dataset.precomputed_embeddings import PrecomputedVisionEmbeddingDataset
 
 
 class SupportedDatasets(Enum):
@@ -179,31 +176,13 @@ class SupportedDatasets(Enum):
         requires_download=True,
     )
 
-    SMOLTALK2_SFT = DatasetConfig(
-        name="HuggingFaceTB/smoltalk2/SFT",
-        total_samples=3_383_242,
-        load_raw_func=load_smoltalk2_sft,
-        dataset_class=SmolTalk2IterableDataset,
-        download_func=download_smoltalk2,
-        requires_download=False,
-    )
-
-    SMOLTALK2_MID = DatasetConfig(
-        name="HuggingFaceTB/smoltalk2/Mid",
-        total_samples=4_779_894,
-        load_raw_func=load_smoltalk2_mid,
-        dataset_class=SmolTalk2IterableDataset,
-        download_func=download_smoltalk2,
-        requires_download=False,
-    )
-
-    SMOLTALK2_PREFERENCE = DatasetConfig(
-        name="HuggingFaceTB/smoltalk2/Preference",
-        total_samples=446_886,
-        load_raw_func=load_smoltalk2_preference,
-        dataset_class=SmolTalk2IterableDataset,
-        download_func=download_smoltalk2,
-        requires_download=False,
+    RU_VLM_REASONING_SFT = DatasetConfig(
+        name="mnezhinskii/ru-vlm-reasoning-sft",
+        total_samples=3_338,
+        load_raw_func=load_ru_vlm_reasoning_sft,
+        dataset_class=RuVLMReasoningSFTIterableDataset,
+        download_func=download_ru_vlm_reasoning_sft,
+        requires_download=True,
     )
 
 
@@ -266,12 +245,12 @@ def load_merged_dataset(
         dataset_specs: List of dicts, one per dataset. Example:
             [
                 {
-                    "config": VLSource.LLAVA_PRETRAIN_RU.value,
+                    "config": SupportedDatasets.LLAVA_PRETRAIN_RU.value,
                     "limit": 200_000,          # or None (use full dataset)
                     "dataset_root": "data/llava_pretrain_ru",   # required for datasets with requires_download=True
                 },
                 {
-                    "config": VLSource.MSCOCO_CAPTION_RU.value,
+                    "config": SupportedDatasets.MSCOCO_CAPTION_RU.value,
                     "limit": None,
                     "dataset_root": "data/mscoco_caption_ru",
                 },
@@ -292,9 +271,6 @@ def load_merged_dataset(
         config: DatasetConfig = spec["config"]
         limit: Optional[int] = spec.get("limit")
         dataset_root: Optional[str] = spec.get("dataset_root")
-        visual_encoder: Optional[str] = spec.get("visual_encoder")
-        load_kwargs: Dict[str, Any] = spec.get("load_kwargs", {})
-        dataset_kwargs: Dict[str, Any] = spec.get("dataset_kwargs", {})
 
         if config.load_raw_func is None or config.dataset_class is None:
             raise ValueError(
@@ -308,7 +284,6 @@ def load_merged_dataset(
             shuffle_buffer=global_shuffle_buffer,
             seed=global_seed,
             dataset_root=dataset_root,
-            **load_kwargs,
         )
 
         # 2. Wrap with the dataset-specific converter (LLaVAPretrainRuIterableDataset / MSCOCOCaptionRuIterableDataset etc.)
@@ -318,16 +293,7 @@ def load_merged_dataset(
             dataset_root=dataset_root,
             seed=global_seed,
             skip_missing_images=True,
-            **dataset_kwargs,
         )
-
-        if visual_encoder is not None:
-            custom_ds = PrecomputedVisionEmbeddingDataset(
-                dataset=custom_ds,
-                dataset_root=dataset_root,
-                visual_encoder=visual_encoder,
-                require_exists=True,
-            )
 
         custom_datasets.append(custom_ds)
 
