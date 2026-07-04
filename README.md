@@ -10,17 +10,49 @@ can use a small causal LM as the visual connector:
 model = GigaChatVL(
     llm_name=LLM_PATH,
     vision_name=VISION_PATH,
+    chat_template_mode="short",
+    max_image_side=1520,
     projector_type="llm",
     connector_llm_name="Qwen/Qwen3-0.6B",
+    connector_llm_dtype="fp16",
     freeze_connector_llm=True,
 )
 ```
 
-The connector receives visual features via `inputs_embeds` and projects its
-hidden states back to the GigaChat hidden size. With `freeze_connector_llm=True`,
-only the input/output projection layers and norms are trained and saved in
-`projector.pt`. Set `freeze_connector_llm=False` to finetune and save the
-connector backbone as part of the projector checkpoint.
+By default the connector receives only raw visual features via `inputs_embeds`.
+It returns contextualized visual-token hidden states, projected back to the
+GigaChat hidden size. Set `connector_use_text_prefix=True` to also pass the
+text-token embeddings that appear before each `[image_token]` placeholder.
+With `freeze_connector_llm=True`, only the input/output projection layers and
+norms are trained and saved in `projector.pt`. Set `freeze_connector_llm=False`
+to finetune and save the connector backbone as part of the projector checkpoint.
+
+For a first connector-only fp16 alignment stage, freeze the donor vision stack
+and base LLM LoRA adapters while training the Qwen connector:
+
+```python
+model = GigaChatVL(
+    llm_name=LLM_PATH,
+    vision_name=VISION_PATH,
+    chat_template_mode="short",
+    max_image_side=1520,
+    use_4bit_llm=True,
+    freeze_vision=True,
+    train_llm_lora=False,
+    projector_type="llm",
+    connector_llm_name="Qwen/Qwen3-0.6B",
+    connector_llm_dtype="fp16",
+    freeze_connector_llm=False,
+    connector_llm_use_qlora=False,
+    normalize_visual_embeddings=True,
+)
+```
+
+Use `chat_template_mode="short"` for GigaChat VLM training to avoid the large
+default developer/system preamble from the tokenizer chat template.
+Use `max_image_side=1520` to downscale large input images before the selected
+vision processor runs; aspect ratio is preserved and smaller images are not
+upscaled.
 
 To train the connector with QLoRA, leave the donor vision encoder frozen and
 enable connector LoRA:

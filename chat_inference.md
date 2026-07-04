@@ -15,7 +15,7 @@ python -m src.api.server \
   --vision_path /path/to/vision \
   --port 8000
 ```
-
+ё
 The server runs by default on http://localhost:8000/v1.
 
 ## 2. Start the Web UI (Hugging Face Chat UI)

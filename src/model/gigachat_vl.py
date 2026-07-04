@@ -29,6 +29,8 @@ from peft import LoraConfig, PeftModel, get_peft_model
 
 
 IMAGE_TOKEN = "[image_token]"
+GIGACHAT_ROLE_SEP = "<|role_sep|>\n"
+GIGACHAT_MESSAGE_SEP = "<|message_sep|>\n\n"
 IGNORE_INDEX = -100
 DEFAULT_PATCH_VISION_IMAGE_SIZE = 1024
 DEFAULT_PATCH_VISION_PATCH_SIZE = 32
@@ -892,8 +894,55 @@ def _build_multimodal_user_text(text: str, num_images: int = 1) -> str:
     return text if not image_prefix else f"{image_prefix}\n{text}"
 
 
-def _build_chat_prompt(tokenizer, text: str, num_images: int = 1) -> str:
+def _normalize_chat_template_mode(chat_template_mode: Any) -> str:
+    if isinstance(chat_template_mode, bool):
+        return "tokenizer" if chat_template_mode else "short"
+
+    mode = str(chat_template_mode or "tokenizer").lower()
+    aliases = {
+        "auto": "tokenizer",
+        "hf": "tokenizer",
+        "default": "tokenizer",
+        "full": "tokenizer",
+        "tokenizer": "tokenizer",
+        "compact": "short",
+        "minimal": "short",
+        "short": "short",
+        "plain": "plain",
+        "legacy": "plain",
+    }
+    if mode not in aliases:
+        raise ValueError(
+            "Unsupported chat_template_mode. Expected one of "
+            "'tokenizer', 'short', or 'plain', got "
+            f"{chat_template_mode!r}."
+        )
+    return aliases[mode]
+
+
+def _build_short_gigachat_prompt(tokenizer, user_text: str) -> str:
+    bos_token = getattr(tokenizer, "bos_token", None) or ""
+    return (
+        f"{bos_token}"
+        f"user{GIGACHAT_ROLE_SEP}{user_text}{GIGACHAT_MESSAGE_SEP}"
+        f"assistant{GIGACHAT_ROLE_SEP}"
+    )
+
+
+def _build_chat_prompt(
+    tokenizer,
+    text: str,
+    num_images: int = 1,
+    chat_template_mode: str = "tokenizer",
+) -> str:
     user_text = _build_multimodal_user_text(text, num_images=num_images)
+    mode = _normalize_chat_template_mode(chat_template_mode)
+
+    if mode == "short":
+        return _build_short_gigachat_prompt(tokenizer, user_text)
+
+    if mode == "plain":
+        return f"User: {user_text}\nAssistant:"
 
     if getattr(tokenizer, "chat_template", None):
         try:
@@ -914,8 +963,19 @@ def _build_chat_training_texts(
     question: str,
     answer: str,
     num_images: int = 1,
+    chat_template_mode: str = "tokenizer",
 ) -> tuple[str, str]:
     user_text = _build_multimodal_user_text(question, num_images=num_images)
+    mode = _normalize_chat_template_mode(chat_template_mode)
+
+    if mode == "short":
+        prompt = _build_short_gigachat_prompt(tokenizer, user_text)
+        return prompt, prompt + str(answer) + GIGACHAT_MESSAGE_SEP
+
+    if mode == "plain":
+        prompt = f"User: {user_text}\nAssistant:"
+        eos_token = tokenizer.eos_token or ""
+        return prompt, prompt + str(answer) + eos_token
 
     if getattr(tokenizer, "chat_template", None):
         try:
@@ -1086,16 +1146,8 @@ def _pil_to_normalized_tensor(
     if not isinstance(image, Image.Image):
         raise TypeError(f"Expected PIL.Image.Image, got {type(image)}")
 
-    image = image.convert("RGB")
+    image = _resize_pil_image_max_side(image, max_side_size)
     width, height = image.size
-    if max_side_size is not None and max_side_size > 0:
-        longest_side = max(width, height)
-        if longest_side > max_side_size:
-            scale = float(max_side_size) / float(longest_side)
-            new_width = max(1, int(round(width * scale)))
-            new_height = max(1, int(round(height * scale)))
-            image = image.resize((new_width, new_height), Image.BICUBIC)
-            width, height = image.size
 
     data = torch.frombuffer(bytearray(image.tobytes()), dtype=torch.uint8)
     data = data.reshape(height, width, 3).permute(2, 0, 1)
@@ -1103,6 +1155,32 @@ def _pil_to_normalized_tensor(
     mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32).view(3, 1, 1)
     std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).view(3, 1, 1)
     return (tensor - mean) / std
+
+
+def _resize_pil_image_max_side(
+    image: Image.Image,
+    max_side_size: Optional[int] = None,
+) -> Image.Image:
+    if not isinstance(image, Image.Image):
+        raise TypeError(f"Expected PIL.Image.Image, got {type(image)}")
+
+    image = image.convert("RGB")
+    if max_side_size is None:
+        return image
+
+    max_side_size = int(max_side_size)
+    if max_side_size <= 0:
+        raise ValueError(f"max_side_size must be > 0, got {max_side_size}")
+
+    width, height = image.size
+    longest_side = max(width, height)
+    if longest_side <= max_side_size:
+        return image
+
+    scale = float(max_side_size) / float(longest_side)
+    new_width = max(1, int(round(width * scale)))
+    new_height = max(1, int(round(height * scale)))
+    return image.resize((new_width, new_height), Image.BICUBIC)
 
 
 def _ceil_div(a: int, b: int) -> int:
@@ -1789,6 +1867,7 @@ class LLMProjector(nn.Module):
             )
 
         self.input_norm = nn.LayerNorm(vision_dim)
+        self.text_in_proj = nn.Linear(llm_dim, connector_hidden_size)
         self.vision_in_proj = nn.Linear(vision_dim, connector_hidden_size)
         self.output_norm = nn.LayerNorm(connector_hidden_size)
         self.llm_out_proj = nn.Linear(connector_hidden_size, llm_dim)
@@ -1818,6 +1897,7 @@ class LLMProjector(nn.Module):
     ) -> None:
         for module in [
             self.input_norm,
+            self.text_in_proj,
             self.vision_in_proj,
             self.output_norm,
             self.llm_out_proj,
@@ -1837,6 +1917,32 @@ class LLMProjector(nn.Module):
 
         if not trainable:
             self.connector_llm.eval()
+        self._freeze_unused_connector_token_layers()
+
+    def _freeze_unused_connector_token_layers(self) -> None:
+        """The connector receives inputs_embeds and never predicts connector tokens."""
+        input_embeddings = None
+        if hasattr(self.connector_llm, "get_input_embeddings"):
+            try:
+                input_embeddings = self.connector_llm.get_input_embeddings()
+            except Exception:
+                input_embeddings = None
+
+        output_embeddings = None
+        if hasattr(self.connector_llm, "get_output_embeddings"):
+            try:
+                output_embeddings = self.connector_llm.get_output_embeddings()
+            except Exception:
+                output_embeddings = None
+
+        if isinstance(input_embeddings, nn.Module):
+            input_embeddings.requires_grad_(False)
+        if isinstance(output_embeddings, nn.Module):
+            output_embeddings.requires_grad_(False)
+
+        lm_head = getattr(self.connector_llm, "lm_head", None)
+        if isinstance(lm_head, nn.Module) and lm_head is not output_embeddings:
+            lm_head.requires_grad_(False)
 
     def train(self, mode: bool = True):
         super().train(mode)
@@ -1857,13 +1963,48 @@ class LLMProjector(nn.Module):
         if not self.freeze_connector_llm:
             _toggle_gradient_checkpointing(self.connector_llm, enabled=False)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        text_prefix_embeds: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         squeeze = False
         if x.dim() == 2:
             x = x.unsqueeze(0)
             squeeze = True
+        if x.dim() != 3:
+            raise RuntimeError(
+                "LLMProjector expects vision features with shape "
+                f"(tokens, dim) or (batch, tokens, dim), got {tuple(x.shape)}."
+            )
 
-        connector_inputs = self.vision_in_proj(self.input_norm(x))
+        vision_inputs = self.vision_in_proj(self.input_norm(x))
+        connector_inputs = vision_inputs
+        prefix_len = 0
+
+        if text_prefix_embeds is not None:
+            if text_prefix_embeds.dim() == 2:
+                text_prefix_embeds = text_prefix_embeds.unsqueeze(0)
+            if text_prefix_embeds.dim() != 3:
+                raise RuntimeError(
+                    "text_prefix_embeds must have shape "
+                    f"(tokens, dim) or (batch, tokens, dim), got "
+                    f"{tuple(text_prefix_embeds.shape)}."
+                )
+            if text_prefix_embeds.size(0) != x.size(0):
+                raise RuntimeError(
+                    "text_prefix_embeds batch size must match vision features. "
+                    f"text_batch={text_prefix_embeds.size(0)}, vision_batch={x.size(0)}"
+                )
+
+            text_prefix_embeds = text_prefix_embeds.to(
+                device=vision_inputs.device,
+                dtype=vision_inputs.dtype,
+            )
+            text_inputs = self.text_in_proj(text_prefix_embeds)
+            prefix_len = text_inputs.size(1)
+            connector_inputs = torch.cat([text_inputs, vision_inputs], dim=1)
+
         attention_mask = torch.ones(
             connector_inputs.shape[:2],
             dtype=torch.long,
@@ -1889,6 +2030,9 @@ class LLMProjector(nn.Module):
         if hidden_states is None:
             hidden_states = outputs[0]
 
+        if prefix_len:
+            hidden_states = hidden_states[:, prefix_len:, :]
+
         y = self.llm_out_proj(self.output_norm(hidden_states))
         if squeeze:
             return y[0]
@@ -1898,6 +2042,7 @@ class LLMProjector(nn.Module):
         state_dict = {}
         for prefix, module in [
             ("input_norm", self.input_norm),
+            ("text_in_proj", self.text_in_proj),
             ("vision_in_proj", self.vision_in_proj),
             ("output_norm", self.output_norm),
             ("llm_out_proj", self.llm_out_proj),
@@ -1952,7 +2097,11 @@ def _infer_projector_type_from_state_dict(state_dict: Dict[str, Any]) -> Optiona
         return "mlp"
     if "vision_proj.weight" in keys or "query_tokens" in keys:
         return "qformer"
-    if "vision_in_proj.weight" in keys or "llm_out_proj.weight" in keys:
+    if (
+        "vision_in_proj.weight" in keys
+        or "text_in_proj.weight" in keys
+        or "llm_out_proj.weight" in keys
+    ):
         return "llm"
     return None
 
@@ -2115,6 +2264,12 @@ class GigaChatVL(nn.Module):
         vision_name: Hugging Face id or local path for the donor vision model
             or patch-LLM visual encoder.
         tokenizer_name: Optional tokenizer path. Defaults to ``llm_name``.
+        chat_template_mode: Prompt formatting mode. ``"tokenizer"`` uses the
+            checkpoint chat template, ``"short"`` keeps only compact GigaChat
+            role tokens, and ``"plain"`` uses ``User:/Assistant:`` text.
+        max_image_side: Optional maximum input image side before any backend
+            processor runs. Aspect ratio is preserved and smaller images are
+            not upscaled.
         use_4bit_llm: Whether to load the base LLM in 4-bit on CUDA devices.
         freeze_vision: Whether to freeze the donor vision stack. Set this to
             ``False`` when training new donor-vision LoRA/QLoRA adapters.
@@ -2168,6 +2323,11 @@ class GigaChatVL(nn.Module):
             connector.
         connector_llm_name: Hugging Face id or local path for the small LLM
             used when ``projector_type="llm"``.
+        connector_llm_dtype: Dtype for the connector LLM. One of ``"auto"``,
+            ``"bf16"``, ``"fp16"``, or ``"fp32"``.
+        connector_use_text_prefix: Whether the connector LLM should see text
+            embeddings before each ``[image_token]`` placeholder. Disabled by
+            default, so the connector receives visual tokens only.
         freeze_connector_llm: Whether to freeze the connector LLM base weights.
         connector_llm_use_qlora: Whether to load the connector LLM with QLoRA
             adapters.
@@ -2196,6 +2356,8 @@ class GigaChatVL(nn.Module):
         llm_name: str = "ai-sage/GigaChat3.1-10B-A1.8B-bf16",
         vision_name: str = "Qwen/Qwen2.5-VL-7B-Instruct",
         tokenizer_name: Optional[str] = None,
+        chat_template_mode: str = "tokenizer",
+        max_image_side: Optional[int] = None,
         use_4bit_llm: bool = True,
         freeze_vision: bool = True,
         vision_backend: Optional[str] = None,
@@ -2226,6 +2388,8 @@ class GigaChatVL(nn.Module):
         projector_type: str = "qformer",
         projector_num_queries: int = 32,
         connector_llm_name: Optional[str] = None,
+        connector_llm_dtype: str = "auto",
+        connector_use_text_prefix: bool = False,
         freeze_connector_llm: bool = True,
         connector_llm_use_qlora: bool = False,
         connector_lora_r: int = 16,
@@ -2241,6 +2405,12 @@ class GigaChatVL(nn.Module):
 
         self.model_device = single_device(device)
         self.llm_name = llm_name
+        self.chat_template_mode = _normalize_chat_template_mode(chat_template_mode)
+        self.max_image_side = None
+        if max_image_side is not None:
+            self.max_image_side = int(max_image_side)
+            if self.max_image_side <= 0:
+                raise ValueError(f"max_image_side must be > 0, got {max_image_side}")
         self.freeze_vision = freeze_vision
         self.vision_name = vision_name
         self.vision_backend_override = vision_backend.lower() if vision_backend is not None else None
@@ -2431,6 +2601,8 @@ class GigaChatVL(nn.Module):
         self.projector_type = projector_type.lower()
         self.projector_num_queries = projector_num_queries
         self.connector_llm_name = connector_llm_name
+        self.connector_llm_dtype = str(connector_llm_dtype or "auto").lower()
+        self.connector_use_text_prefix = bool(connector_use_text_prefix)
         self.freeze_connector_llm = freeze_connector_llm
         self.connector_llm_use_qlora = bool(
             connector_llm_use_qlora or connector_llm_lora_path is not None
@@ -2465,6 +2637,10 @@ class GigaChatVL(nn.Module):
                     "projector_type='llm' requires connector_llm_name, for example "
                     "'Qwen/Qwen3-0.6B'."
                 )
+            connector_dtype = _resolve_dtype_choice(
+                self.connector_llm_dtype,
+                self.llm.get_input_embeddings().weight.dtype,
+            )
             self.projector = LLMProjector(
                 vision_dim=self.vision_hidden_size,
                 llm_dim=self.llm_hidden_size,
@@ -2475,7 +2651,7 @@ class GigaChatVL(nn.Module):
                 connector_lora_alpha=self.connector_lora_alpha,
                 connector_lora_dropout=self.connector_lora_dropout,
                 connector_llm_lora_path=self.connector_llm_lora_path,
-                connector_dtype=self.llm.get_input_embeddings().weight.dtype,
+                connector_dtype=connector_dtype,
                 connector_device=self.llm.get_input_embeddings().weight.device,
             )
         projector_device = self.llm.get_input_embeddings().weight.device
@@ -2483,7 +2659,7 @@ class GigaChatVL(nn.Module):
         if isinstance(self.projector, LLMProjector):
             self.projector.move_projection_layers(
                 device=projector_device,
-                dtype=projector_dtype,
+                dtype=_resolve_dtype_choice(self.connector_llm_dtype, projector_dtype),
             )
         else:
             self.projector.to(
@@ -2903,6 +3079,8 @@ class GigaChatVL(nn.Module):
             "llm_hidden_size": self.llm_hidden_size,
             "num_lora_layers": self.num_lora_layers,
             "train_llm_lora": self.train_llm_lora,
+            "chat_template_mode": getattr(self, "chat_template_mode", "tokenizer"),
+            "max_image_side": getattr(self, "max_image_side", None),
             "normalize_visual_embeddings": self.normalize_visual_embeddings,
             "visual_embedding_target_norm": self.visual_embedding_target_norm,
             "enable_vl_experts": self.enable_vl_experts,
@@ -2911,6 +3089,10 @@ class GigaChatVL(nn.Module):
             "projector_type": getattr(self, "projector_type", None),
             "projector_num_queries": getattr(self.projector, "num_queries", None),
             "connector_llm_name": getattr(self, "connector_llm_name", None),
+            "connector_llm_dtype": getattr(self, "connector_llm_dtype", "auto"),
+            "connector_use_text_prefix": bool(
+                getattr(self, "connector_use_text_prefix", False)
+            ),
             "freeze_connector_llm": getattr(self, "freeze_connector_llm", True),
             "connector_llm_use_qlora": getattr(self, "connector_llm_use_qlora", False),
             "connector_lora_r": getattr(self, "connector_lora_r", 16),
@@ -2978,10 +3160,14 @@ class GigaChatVL(nn.Module):
         lora_dropout: float = 0.05,
         num_lora_layers: Optional[int] = None,
         train_llm_lora: Optional[bool] = None,
+        chat_template_mode: Optional[str] = None,
+        max_image_side: Optional[int] = None,
         normalize_visual_embeddings: Optional[bool] = None,
         projector_type: Optional[str] = None,
         projector_num_queries: Optional[int] = None,
         connector_llm_name: Optional[str] = None,
+        connector_llm_dtype: Optional[str] = None,
+        connector_use_text_prefix: Optional[bool] = None,
         freeze_connector_llm: Optional[bool] = None,
         connector_llm_use_qlora: Optional[bool] = None,
         connector_lora_r: Optional[int] = None,
@@ -3054,6 +3240,12 @@ class GigaChatVL(nn.Module):
         resolved_train_llm_lora = train_llm_lora
         if resolved_train_llm_lora is None:
             resolved_train_llm_lora = bool(meta.get("train_llm_lora", True))
+        resolved_chat_template_mode = _normalize_chat_template_mode(
+            chat_template_mode or meta.get("chat_template_mode", "tokenizer")
+        )
+        resolved_max_image_side = max_image_side
+        if resolved_max_image_side is None:
+            resolved_max_image_side = meta.get("max_image_side")
         resolved_normalize_visual_embeddings = normalize_visual_embeddings
         if resolved_normalize_visual_embeddings is None:
             resolved_normalize_visual_embeddings = bool(
@@ -3065,6 +3257,19 @@ class GigaChatVL(nn.Module):
         if resolved_projector_num_queries is None:
             resolved_projector_num_queries = 32
         resolved_connector_llm_name = connector_llm_name or meta.get("connector_llm_name")
+        resolved_connector_llm_dtype = (
+            connector_llm_dtype
+            or meta.get("connector_llm_dtype")
+            or "auto"
+        )
+        resolved_connector_use_text_prefix = connector_use_text_prefix
+        if resolved_connector_use_text_prefix is None:
+            resolved_connector_use_text_prefix = bool(
+                meta.get(
+                    "connector_use_text_prefix",
+                    meta.get("connector_uses_text_prefix", False),
+                )
+            )
         resolved_freeze_connector_llm = freeze_connector_llm
         if resolved_freeze_connector_llm is None:
             resolved_freeze_connector_llm = bool(meta.get("freeze_connector_llm", True))
@@ -3172,6 +3377,8 @@ class GigaChatVL(nn.Module):
             llm_name=resolved_llm_name,
             vision_name=resolved_vision_name,
             tokenizer_name=str(tokenizer_dir) if tokenizer_dir is not None else resolved_llm_name,
+            chat_template_mode=resolved_chat_template_mode,
+            max_image_side=resolved_max_image_side,
             use_4bit_llm=use_4bit_llm,
             freeze_vision=freeze_vision,
             vision_backend=resolved_vision_backend,
@@ -3207,6 +3414,8 @@ class GigaChatVL(nn.Module):
             projector_type=resolved_projector_type,
             projector_num_queries=int(resolved_projector_num_queries),
             connector_llm_name=resolved_connector_llm_name,
+            connector_llm_dtype=str(resolved_connector_llm_dtype),
+            connector_use_text_prefix=bool(resolved_connector_use_text_prefix),
             freeze_connector_llm=bool(resolved_freeze_connector_llm),
             connector_llm_use_qlora=bool(resolved_connector_llm_use_qlora),
             connector_lora_r=int(resolved_connector_lora_r),
@@ -3568,6 +3777,13 @@ class GigaChatVL(nn.Module):
         )
 
     def prepare_vision_inputs(self, images: List[Any]) -> Dict[str, torch.Tensor]:
+        max_image_side = getattr(self, "max_image_side", None)
+        if max_image_side is not None:
+            images = [
+                _resize_pil_image_max_side(image, max_side_size=max_image_side)
+                for image in images
+            ]
+
         # Qwen family
         if self.vision_backend in {
             "qwen2_5_vl",
@@ -4169,41 +4385,84 @@ class GigaChatVL(nn.Module):
             out.append(x)
         return out
 
-    def _project_image_features(
+    def _project_single_image_features(
         self,
-        flat_vision_features: List[torch.Tensor],
-    ) -> List[torch.Tensor]:
-        out = []
-        projector_device, projector_dtype = _module_device_dtype(self.projector)
+        vision_features: torch.Tensor,
+        text_prefix_embeds: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        if isinstance(self.projector, LLMProjector):
+            projector_device = self.projector.vision_in_proj.weight.device
+            projector_dtype = self.projector.vision_in_proj.weight.dtype
+        else:
+            projector_device, projector_dtype = _module_device_dtype(self.projector)
         llm_embed_weight = self.llm.get_input_embeddings().weight
-        for x in flat_vision_features:
-            y = self.projector(
-                x.to(
+        x = vision_features.to(
+            device=projector_device,
+            dtype=projector_dtype,
+        )
+        if isinstance(self.projector, LLMProjector):
+            if text_prefix_embeds is not None:
+                text_prefix_embeds = text_prefix_embeds.to(
                     device=projector_device,
                     dtype=projector_dtype,
                 )
+            y = self.projector(
+                x,
+                text_prefix_embeds=text_prefix_embeds,
             )
-            y = y.to(
-                device=llm_embed_weight.device,
-                dtype=llm_embed_weight.dtype,
+        else:
+            y = self.projector(x)
+
+        y = y.to(
+            device=llm_embed_weight.device,
+            dtype=llm_embed_weight.dtype,
+        )
+        if getattr(self, "normalize_visual_embeddings", False):
+            y_float = y.float()
+            y_norm = y_float.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+            target_norm = torch.tensor(
+                getattr(self, "visual_embedding_target_norm", 1.0),
+                device=y.device,
+                dtype=torch.float32,
             )
-            if getattr(self, "normalize_visual_embeddings", False):
-                y_float = y.float()
-                y_norm = y_float.norm(dim=-1, keepdim=True).clamp_min(1e-6)
-                target_norm = torch.tensor(
-                    getattr(self, "visual_embedding_target_norm", 1.0),
-                    device=y.device,
-                    dtype=torch.float32,
-                )
-                y = (y_float * (target_norm / y_norm)).to(dtype=llm_embed_weight.dtype)
+            y = (y_float * (target_norm / y_norm)).to(dtype=llm_embed_weight.dtype)
+        return y
+
+    def _project_image_features(
+        self,
+        flat_vision_features: List[torch.Tensor],
+        text_prefix_embeds_per_image: Optional[List[Optional[torch.Tensor]]] = None,
+    ) -> List[torch.Tensor]:
+        if text_prefix_embeds_per_image is None:
+            text_prefix_embeds_per_image = [None] * len(flat_vision_features)
+        if len(text_prefix_embeds_per_image) != len(flat_vision_features):
+            raise RuntimeError(
+                "text_prefix_embeds_per_image must match flat_vision_features. "
+                f"prefixes={len(text_prefix_embeds_per_image)}, "
+                f"features={len(flat_vision_features)}"
+            )
+
+        out = []
+        for x, text_prefix_embeds in zip(
+            flat_vision_features,
+            text_prefix_embeds_per_image,
+        ):
+            y = self._project_single_image_features(
+                vision_features=x,
+                text_prefix_embeds=text_prefix_embeds,
+            )
             out.append(y)
         return out
 
     def project_vision_features(
         self,
         flat_vision_features: List[torch.Tensor],
+        text_prefix_embeds_per_image: Optional[List[Optional[torch.Tensor]]] = None,
     ) -> List[torch.Tensor]:
-        return self._project_image_features(list(flat_vision_features))
+        return self._project_image_features(
+            list(flat_vision_features),
+            text_prefix_embeds_per_image=text_prefix_embeds_per_image,
+        )
 
     def encode_images(
         self,
@@ -4348,6 +4607,16 @@ class GigaChatVL(nn.Module):
             )
             if merged_label_parts is not None:
                 merged_label_parts.append(labels_i[cursor:pos])
+
+            if isinstance(self.projector, LLMProjector):
+                text_prefix_embeds = None
+                if getattr(self, "connector_use_text_prefix", False):
+                    text_prefix_mask = ids_i[:pos] != self.image_token_id
+                    text_prefix_embeds = embeds_i[:pos][text_prefix_mask]
+                img_feats = self._project_single_image_features(
+                    vision_features=img_feats,
+                    text_prefix_embeds=text_prefix_embeds,
+                )
 
             merged_ids_parts.append(
                 torch.full(
@@ -4511,7 +4780,12 @@ class GigaChatVL(nn.Module):
         Returns:
             Formatted chat prompt ending at the assistant generation prefix.
         """
-        return _build_chat_prompt(self.tokenizer, text, num_images=num_images)
+        return _build_chat_prompt(
+            self.tokenizer,
+            text,
+            num_images=num_images,
+            chat_template_mode=getattr(self, "chat_template_mode", "tokenizer"),
+        )
 
     def build_chat_training_texts(
         self,
@@ -4535,6 +4809,7 @@ class GigaChatVL(nn.Module):
             question=question,
             answer=answer,
             num_images=num_images,
+            chat_template_mode=getattr(self, "chat_template_mode", "tokenizer"),
         )
 
     def _build_generation_inputs(
@@ -4579,7 +4854,10 @@ class GigaChatVL(nn.Module):
             }
 
         vision_batch = self.prepare_vision_inputs(images)
-        flat_image_features = self.encode_images(**vision_batch)
+        if isinstance(self.projector, LLMProjector):
+            flat_image_features = self.encode_vision_features(**vision_batch)
+        else:
+            flat_image_features = self.encode_images(**vision_batch)
         grouped_image_features = self._group_image_features_by_sample(
             flat_image_features=flat_image_features,
             num_images_per_sample=[len(images)],
@@ -4659,6 +4937,8 @@ class GigaChatVL(nn.Module):
 
         visual_embed_norm_mean = None
         text_embed_norm_mean = None
+        visual_to_text_norm_ratio = None
+        visual_norm_warning = None
         if "inputs_embeds" in prepared and torch.is_tensor(visual_token_mask):
             inputs_embeds = prepared["inputs_embeds"]
             mask = visual_token_mask.to(device=inputs_embeds.device, dtype=torch.bool)
@@ -4666,6 +4946,18 @@ class GigaChatVL(nn.Module):
                 visual_embed_norm_mean = float(inputs_embeds[mask].norm(dim=-1).mean().item())
             if (~mask).any():
                 text_embed_norm_mean = float(inputs_embeds[~mask].norm(dim=-1).mean().item())
+            if (
+                visual_embed_norm_mean is not None
+                and text_embed_norm_mean is not None
+                and text_embed_norm_mean > 0
+            ):
+                visual_to_text_norm_ratio = visual_embed_norm_mean / text_embed_norm_mean
+                if visual_to_text_norm_ratio > 3.0 or visual_to_text_norm_ratio < 0.33:
+                    visual_norm_warning = (
+                        "visual embeddings norm is far from text embeddings; "
+                        "try normalize_visual_embeddings=True and retrain/load a "
+                        "checkpoint trained with the same setting"
+                    )
 
         connector_llm = None
         connector_is_peft = False
@@ -4679,10 +4971,22 @@ class GigaChatVL(nn.Module):
             "vision_backend": self.vision_backend,
             "vision_name": self.vision_name,
             "projector_type": self.projector_type,
+            "chat_template_mode": getattr(self, "chat_template_mode", "tokenizer"),
+            "max_image_side": getattr(self, "max_image_side", None),
             "connector_llm_name": getattr(self, "connector_llm_name", None),
+            "connector_llm_dtype": getattr(self, "connector_llm_dtype", "auto"),
+            "connector_use_text_prefix": bool(
+                getattr(self, "connector_use_text_prefix", False)
+            ),
             "connector_llm_use_qlora": bool(getattr(self, "connector_llm_use_qlora", False)),
             "connector_is_peft": connector_is_peft,
             "connector_is_quantized": connector_is_quantized,
+            "normalize_visual_embeddings": bool(
+                getattr(self, "normalize_visual_embeddings", False)
+            ),
+            "visual_embedding_target_norm": float(
+                getattr(self, "visual_embedding_target_norm", 1.0)
+            ),
             "num_images": len(images),
             "image_token": IMAGE_TOKEN,
             "image_token_id": int(self.image_token_id),
@@ -4702,6 +5006,8 @@ class GigaChatVL(nn.Module):
             "attention_mask_shape": tuple(prepared["attention_mask"].shape),
             "visual_embed_norm_mean": visual_embed_norm_mean,
             "text_embed_norm_mean": text_embed_norm_mean,
+            "visual_to_text_norm_ratio": visual_to_text_norm_ratio,
+            "visual_norm_warning": visual_norm_warning,
         }
 
     @torch.no_grad()
@@ -4871,30 +5177,16 @@ class GigaChatVL(nn.Module):
                 num_items_in_batch=num_items_in_batch,
             )
 
+        project_images_during_merge = isinstance(self.projector, LLMProjector)
         if vision_precomputed_features is not None:
-            flat_image_features = self.project_vision_features(
-                list(vision_precomputed_features)
-            )
-        elif self.vision_backend == "qwen2_5_vl":
-            flat_image_features = self.encode_images(
-                vision_pixel_values=vision_pixel_values,
-                vision_image_grid_thw=vision_image_grid_thw,
-            )
-        elif self.vision_backend in {"qwen3_vl", "qwen3_5", "qwen3_5_moe", "qwen3_5_vl"}:
-            flat_image_features = self.encode_images(
-                vision_pixel_values=vision_pixel_values,
-                vision_image_grid_thw=vision_image_grid_thw,
-            )
-        elif self.vision_backend in {"siglip", "siglip2"}:
-            flat_image_features = self.encode_images(**vision_kwargs)
-        elif self.vision_backend == "aimv2":
-            flat_image_features = self.encode_images(**vision_kwargs)
-        elif self.vision_backend == "gemma4":
-            flat_image_features = self.encode_images(**vision_kwargs)
-        elif self.vision_backend == "patch_llm":
-            flat_image_features = self.encode_images(**vision_kwargs)
+            flat_image_features = list(vision_precomputed_features)
+            if not project_images_during_merge:
+                flat_image_features = self.project_vision_features(flat_image_features)
         else:
-            raise RuntimeError(f"Unknown vision backend: {self.vision_backend}")
+            if project_images_during_merge:
+                flat_image_features = self.encode_vision_features(**vision_kwargs)
+            else:
+                flat_image_features = self.encode_images(**vision_kwargs)
 
         image_features_per_sample = self._group_image_features_by_sample(
             flat_image_features=flat_image_features,
@@ -4941,10 +5233,14 @@ class GigaChatVLForInference(GigaChatVL):
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
         num_lora_layers: Optional[int] = None,
+        chat_template_mode: Optional[str] = None,
+        max_image_side: Optional[int] = None,
         normalize_visual_embeddings: Optional[bool] = None,
         projector_type: Optional[str] = None,
         projector_num_queries: Optional[int] = None,
         connector_llm_name: Optional[str] = None,
+        connector_llm_dtype: Optional[str] = None,
+        connector_use_text_prefix: Optional[bool] = None,
         freeze_connector_llm: Optional[bool] = None,
         connector_llm_use_qlora: Optional[bool] = None,
         connector_lora_r: Optional[int] = None,
@@ -5013,6 +5309,19 @@ class GigaChatVLForInference(GigaChatVL):
         if resolved_projector_num_queries is None:
             resolved_projector_num_queries = 32
         resolved_connector_llm_name = connector_llm_name or meta.get("connector_llm_name")
+        resolved_connector_llm_dtype = (
+            connector_llm_dtype
+            or meta.get("connector_llm_dtype")
+            or "auto"
+        )
+        resolved_connector_use_text_prefix = connector_use_text_prefix
+        if resolved_connector_use_text_prefix is None:
+            resolved_connector_use_text_prefix = bool(
+                meta.get(
+                    "connector_use_text_prefix",
+                    meta.get("connector_uses_text_prefix", False),
+                )
+            )
         resolved_freeze_connector_llm = freeze_connector_llm
         if resolved_freeze_connector_llm is None:
             resolved_freeze_connector_llm = bool(meta.get("freeze_connector_llm", True))
@@ -5078,6 +5387,12 @@ class GigaChatVLForInference(GigaChatVL):
         resolved_num_lora_layers = num_lora_layers
         if resolved_num_lora_layers is None:
             resolved_num_lora_layers = meta.get("num_lora_layers", -1)
+        resolved_chat_template_mode = _normalize_chat_template_mode(
+            chat_template_mode or meta.get("chat_template_mode", "tokenizer")
+        )
+        resolved_max_image_side = max_image_side
+        if resolved_max_image_side is None:
+            resolved_max_image_side = meta.get("max_image_side")
         resolved_normalize_visual_embeddings = normalize_visual_embeddings
         if resolved_normalize_visual_embeddings is None:
             resolved_normalize_visual_embeddings = bool(
@@ -5153,6 +5468,8 @@ class GigaChatVLForInference(GigaChatVL):
             llm_name=resolved_llm_name,
             vision_name=resolved_vision_name,
             tokenizer_name=str(tokenizer_dir) if tokenizer_dir.exists() else resolved_llm_name,
+            chat_template_mode=resolved_chat_template_mode,
+            max_image_side=resolved_max_image_side,
             use_4bit_llm=use_4bit_llm,
             freeze_vision=True,
             vision_backend=resolved_vision_backend,
@@ -5189,6 +5506,8 @@ class GigaChatVLForInference(GigaChatVL):
             projector_type=resolved_projector_type,
             projector_num_queries=int(resolved_projector_num_queries),
             connector_llm_name=resolved_connector_llm_name,
+            connector_llm_dtype=str(resolved_connector_llm_dtype),
+            connector_use_text_prefix=bool(resolved_connector_use_text_prefix),
             freeze_connector_llm=bool(resolved_freeze_connector_llm),
             connector_llm_use_qlora=bool(resolved_connector_llm_use_qlora),
             connector_lora_r=int(resolved_connector_lora_r),
