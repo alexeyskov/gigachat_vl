@@ -1,0 +1,33 @@
+# Core training / inference
+torch>=2.5.0
+torchvision>=0.20.0
+transformers>=4.51.0
+accelerate>=1.2.0
+datasets>=3.0.0
+peft>=0.14.0
+bitsandbytes>=0.45.0
+safetensors>=0.4.5
+tokenizers>=0.20.0
+sentencepiece>=0.2.0
+protobuf>=5.27.0
+
+# Data and image processing
+pillow>=10.4.0
+huggingface-hub>=0.27.0
+pyarrow>=17.0.0
+tqdm>=4.66.0
+pandas>=2.2.0
+
+# API server and reasoning-data preparation
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+openai>=1.59.0
+pydantic>=2.8.0
+python-dotenv>=1.0.1
+
+# Optional speedups / eval tooling.
+# Install flash-attn separately only if it matches your CUDA/PyTorch build.
+# flash-attn>=2.7.0
+#
+# Required only for src/eval/* VLMEvalKit integration.
+# vlmevalkit>=0.2.0
