@@ -63,6 +63,7 @@ from src.dataset.ru_vlm_reasoning_sft import (
     load_ru_vlm_reasoning_sft,
     RuVLMReasoningSFTIterableDataset,
 )
+from src.dataset.precomputed_embeddings import PrecomputedVisionEmbeddingDataset
 
 
 class SupportedDatasets(Enum):
@@ -294,6 +295,15 @@ def load_merged_dataset(
             seed=global_seed,
             skip_missing_images=True,
         )
+
+        visual_encoder = spec.get("visual_encoder")
+        if visual_encoder is not None:
+            custom_ds = PrecomputedVisionEmbeddingDataset(
+                dataset=custom_ds,
+                dataset_root=dataset_root,
+                visual_encoder=visual_encoder,
+                require_exists=bool(spec.get("require_precomputed_exists", True)),
+            )
 
         custom_datasets.append(custom_ds)
 

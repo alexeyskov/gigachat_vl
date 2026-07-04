@@ -2309,8 +2309,12 @@ class GigaChatVL(nn.Module):
         lora_dropout: Dropout used by base LLM LoRA adapters.
         num_lora_layers: Number of initial LLM layers that receive LoRA
             adapters. Use ``-1`` to target all eligible layers.
-        train_llm_lora: Whether base LLM LoRA adapters are trainable. Set this
-            to ``False`` for projector-only alignment stages.
+        use_llm_lora: Whether to attach LoRA adapters to the base LLM. Set this
+            to ``False`` for full-parameter LLM fine-tuning.
+        train_llm_lora: Whether the base LLM adaptation parameters are
+            trainable. With ``use_llm_lora=True`` this controls LoRA adapter
+            parameters; with ``use_llm_lora=False`` it controls the full base
+            LLM.
         normalize_visual_embeddings: Whether to L2-normalize projected visual
             tokens to the mean norm of the base LLM token embeddings. Disabled
             by default to preserve raw projector behavior and checkpoint
@@ -2381,6 +2385,7 @@ class GigaChatVL(nn.Module):
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
         num_lora_layers: int = -1,
+        use_llm_lora: bool = True,
         train_llm_lora: bool = True,
         normalize_visual_embeddings: bool = False,
         lora_path: Optional[str] = None,
@@ -2441,6 +2446,7 @@ class GigaChatVL(nn.Module):
                 "with vision_lora_path."
             )
         self.num_lora_layers = num_lora_layers
+        self.use_llm_lora = bool(use_llm_lora or lora_path is not None)
         self.train_llm_lora = bool(train_llm_lora)
         self.normalize_visual_embeddings = bool(normalize_visual_embeddings)
         self.vl_expert_layers = vl_expert_layers
@@ -2552,6 +2558,13 @@ class GigaChatVL(nn.Module):
         if self.enable_vl_experts:
             self._install_vl_experts()
 
+        if llm_quant_config is not None and not self.use_llm_lora and self.train_llm_lora:
+            raise ValueError(
+                "Full-parameter LLM fine-tuning cannot use use_4bit_llm=True. "
+                "Set use_4bit_llm=False for bf16/fp16 full fine-tuning, or "
+                "use_llm_lora=True for 4-bit LoRA/QLoRA training."
+            )
+
         if lora_path is not None:
             self.llm = PeftModel.from_pretrained(
                 self.llm,
@@ -2559,7 +2572,7 @@ class GigaChatVL(nn.Module):
                 is_trainable=False,
             )
             self._set_vl_experts_trainable(False)
-        else:
+        elif self.use_llm_lora:
             layers_to_transform = _resolve_lora_layers_to_transform(
                 getattr(self.llm.config, "num_hidden_layers", None),
                 num_lora_layers=self.num_lora_layers,
@@ -2582,6 +2595,9 @@ class GigaChatVL(nn.Module):
                 lora_kwargs["layers_pattern"] = "layers"
             lora_cfg = LoraConfig(**lora_kwargs)
             self.llm = get_peft_model(self.llm, lora_cfg)
+            self.set_llm_lora_trainable(self.train_llm_lora)
+            self._set_vl_experts_trainable(True)
+        else:
             self.set_llm_lora_trainable(self.train_llm_lora)
             self._set_vl_experts_trainable(True)
 
@@ -2850,6 +2866,18 @@ class GigaChatVL(nn.Module):
             for key, value in self.projector.state_dict().items()
         }
 
+    def llm_base_state_dict(self) -> Dict[str, torch.Tensor]:
+        state_dict = self.llm.state_dict()
+        base_state_dict: Dict[str, torch.Tensor] = {}
+
+        for key, value in state_dict.items():
+            if ".mlp.visual_expert." in key:
+                continue
+            base_key = key.replace(".mlp.base_mlp.", ".mlp.")
+            base_state_dict[base_key] = value.detach().cpu()
+
+        return _clone_shared_tensors_in_state_dict(base_state_dict)
+
     def _load_projector_state_dict(self, state_dict: Dict[str, torch.Tensor]) -> None:
         if isinstance(self.projector, LLMProjector):
             self.projector.load_connector_state_dict(state_dict)
@@ -3078,6 +3106,7 @@ class GigaChatVL(nn.Module):
             "llm_name": self.llm_name,
             "llm_hidden_size": self.llm_hidden_size,
             "num_lora_layers": self.num_lora_layers,
+            "use_llm_lora": self.use_llm_lora,
             "train_llm_lora": self.train_llm_lora,
             "chat_template_mode": getattr(self, "chat_template_mode", "tokenizer"),
             "max_image_side": getattr(self, "max_image_side", None),
@@ -3159,6 +3188,7 @@ class GigaChatVL(nn.Module):
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
         num_lora_layers: Optional[int] = None,
+        use_llm_lora: Optional[bool] = None,
         train_llm_lora: Optional[bool] = None,
         chat_template_mode: Optional[str] = None,
         max_image_side: Optional[int] = None,
@@ -3205,6 +3235,8 @@ class GigaChatVL(nn.Module):
             checkpoint_path,
             "vision_llm",
         )
+        llm_lora_path = _resolve_checkpoint_sidecar_path(checkpoint_path, "llm_lora")
+        full_llm_path = _resolve_checkpoint_sidecar_path(checkpoint_path, "llm")
         vision_lora_path = _resolve_checkpoint_sidecar_path(
             checkpoint_path,
             "vision_lora",
@@ -3220,7 +3252,13 @@ class GigaChatVL(nn.Module):
         vl_experts_path = _resolve_checkpoint_sidecar_path(checkpoint_path, "vl_experts.pt")
 
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        resolved_use_llm_lora = use_llm_lora
+        if resolved_use_llm_lora is None:
+            resolved_use_llm_lora = bool(meta.get("use_llm_lora", llm_lora_path is not None))
+
         resolved_llm_name = llm_name or meta.get("llm_name")
+        if not bool(resolved_use_llm_lora) and full_llm_path is not None:
+            resolved_llm_name = str(full_llm_path)
         resolved_vision_name = vision_name or meta.get("vision_name")
         resolved_vision_backend = (
             vision_backend
@@ -3372,6 +3410,18 @@ class GigaChatVL(nn.Module):
                 "next to the checkpoint or in its parent experiment directory: "
                 f"{checkpoint_path}"
             )
+        if bool(resolved_use_llm_lora) and llm_lora_path is None:
+            raise FileNotFoundError(
+                "Could not find base LLM LoRA adapter directory `llm_lora` "
+                "next to the checkpoint or in its parent experiment directory: "
+                f"{checkpoint_path}"
+            )
+        if not bool(resolved_use_llm_lora) and full_llm_path is None and llm_name is None:
+            raise FileNotFoundError(
+                "Full-parameter checkpoint metadata has use_llm_lora=False, but no "
+                "`llm` directory was found. Pass llm_name explicitly to load another "
+                "full LLM checkpoint."
+            )
 
         model = cls(
             llm_name=resolved_llm_name,
@@ -3409,8 +3459,14 @@ class GigaChatVL(nn.Module):
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
             num_lora_layers=int(resolved_num_lora_layers),
+            use_llm_lora=bool(resolved_use_llm_lora),
             train_llm_lora=bool(resolved_train_llm_lora),
             normalize_visual_embeddings=bool(resolved_normalize_visual_embeddings),
+            lora_path=(
+                str(llm_lora_path)
+                if bool(resolved_use_llm_lora) and llm_lora_path is not None
+                else None
+            ),
             projector_type=resolved_projector_type,
             projector_num_queries=int(resolved_projector_num_queries),
             connector_llm_name=resolved_connector_llm_name,
@@ -5233,6 +5289,7 @@ class GigaChatVLForInference(GigaChatVL):
         lora_alpha: int = 32,
         lora_dropout: float = 0.05,
         num_lora_layers: Optional[int] = None,
+        use_llm_lora: Optional[bool] = None,
         chat_template_mode: Optional[str] = None,
         max_image_side: Optional[int] = None,
         normalize_visual_embeddings: Optional[bool] = None,
@@ -5253,6 +5310,7 @@ class GigaChatVLForInference(GigaChatVL):
         checkpoint_path = Path(checkpoint_dir)
         meta_path = checkpoint_path / "vlm_meta.json"
         lora_dir = checkpoint_path / "llm_lora"
+        full_llm_dir = checkpoint_path / "llm"
         projector_path = checkpoint_path / "projector.pt"
         vl_experts_path = checkpoint_path / "vl_experts.pt"
         vision_encoder_path = checkpoint_path / "vision_encoder.pt"
@@ -5266,8 +5324,6 @@ class GigaChatVLForInference(GigaChatVL):
 
         if not meta_path.exists():
             raise FileNotFoundError(f"Missing checkpoint metadata: {meta_path}")
-        if not lora_dir.exists():
-            raise FileNotFoundError(f"Missing LoRA adapter directory: {lora_dir}")
         if not projector_path.exists():
             raise FileNotFoundError(f"Missing projector weights: {projector_path}")
 
@@ -5278,7 +5334,21 @@ class GigaChatVLForInference(GigaChatVL):
         if adapter_config_path.exists():
             adapter_config = json.loads(adapter_config_path.read_text())
 
+        resolved_use_llm_lora = use_llm_lora
+        if resolved_use_llm_lora is None:
+            resolved_use_llm_lora = bool(meta.get("use_llm_lora", lora_dir.exists()))
+
+        if bool(resolved_use_llm_lora) and not lora_dir.exists():
+            raise FileNotFoundError(f"Missing LoRA adapter directory: {lora_dir}")
+        if not bool(resolved_use_llm_lora) and not full_llm_dir.exists() and llm_name is None:
+            raise FileNotFoundError(
+                "Missing full LLM directory for non-LoRA checkpoint: "
+                f"{full_llm_dir}. Pass llm_name explicitly to use another full LLM."
+            )
+
         resolved_llm_name = llm_name or meta.get("llm_name") or adapter_config.get("base_model_name_or_path")
+        if not bool(resolved_use_llm_lora) and full_llm_dir.exists():
+            resolved_llm_name = str(full_llm_dir)
         meta_llm_name = meta.get("llm_name")
         resolved_vision_backend = (
             vision_backend
@@ -5458,10 +5528,15 @@ class GigaChatVLForInference(GigaChatVL):
                 "Projector weights will only load if the checkpoint was trained with the same vision donor."
             )
         if llm_name is not None and meta_llm_name is not None and llm_name != meta_llm_name:
+            mode_note = (
+                "Full LLM weights from the checkpoint `llm` directory will be used."
+                if not bool(resolved_use_llm_lora) and full_llm_dir.exists()
+                else "LoRA adapters should be loaded on the same base LLM checkpoint they were trained on."
+            )
             print(
                 "Warning: explicit llm_name differs from checkpoint metadata. "
                 f"meta_llm_name={meta_llm_name}, explicit_llm_name={llm_name}. "
-                "LoRA adapters should be loaded on the same base LLM checkpoint they were trained on."
+                f"{mode_note}"
             )
 
         super().__init__(
@@ -5500,8 +5575,10 @@ class GigaChatVLForInference(GigaChatVL):
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
             num_lora_layers=int(resolved_num_lora_layers),
+            use_llm_lora=bool(resolved_use_llm_lora),
+            train_llm_lora=False,
             normalize_visual_embeddings=bool(resolved_normalize_visual_embeddings),
-            lora_path=str(lora_dir),
+            lora_path=str(lora_dir) if bool(resolved_use_llm_lora) else None,
             projector_path=str(projector_path) if projector_path.exists() else None,
             projector_type=resolved_projector_type,
             projector_num_queries=int(resolved_projector_num_queries),
