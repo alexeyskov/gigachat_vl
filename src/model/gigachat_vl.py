@@ -222,6 +222,40 @@ def _candidate_safetensor_files(model_dir: Path) -> List[Path]:
     raise FileNotFoundError(f"No safetensors weights found under {model_dir}")
 
 
+def _coerce_local_config_float_fields(
+    model_name_or_path: str,
+    field_names: List[str],
+) -> None:
+    model_path = Path(str(model_name_or_path))
+    if not model_path.exists() or not model_path.is_dir():
+        return
+
+    config_path = model_path / "config.json"
+    if not config_path.exists():
+        return
+
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    changed = False
+    for field_name in field_names:
+        value = cfg.get(field_name)
+        if isinstance(value, int) and not isinstance(value, bool):
+            cfg[field_name] = float(value)
+            changed = True
+
+    if not changed:
+        return
+
+    config_path.write_text(
+        json.dumps(cfg, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"Patched numeric config field types in {config_path}")
+
+
 def _load_prefixed_safetensor_state_dict(
     model_dir: Path,
     prefix: str,
@@ -2482,6 +2516,11 @@ class GigaChatVL(nn.Module):
 
         llm_dtype = torch.bfloat16 if self.model_device.type == "cuda" else torch.float32
         llm_device_map = single_device_map(self.model_device) if llm_quant_config is not None else None
+
+        _coerce_local_config_float_fields(
+            llm_name,
+            field_names=["routed_scaling_factor"],
+        )
 
         with _without_transformers_allocator_warmup():
             llm_load = AutoModelForCausalLM.from_pretrained(
