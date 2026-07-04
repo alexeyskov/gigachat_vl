@@ -278,6 +278,8 @@ def load_merged_dataset(
                 f"Dataset {config.name} is not fully configured for loading"
             )
 
+        config.download_func(dataset_root)
+
         # 1. Get raw HF iterable
         raw_ds = config.load_raw_func(
             config=config,
