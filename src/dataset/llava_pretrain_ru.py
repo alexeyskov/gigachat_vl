@@ -42,8 +42,6 @@ def download_llava_pretrain_ru(
 
     if hf_token:
         login(token=hf_token)
-    else:
-        login()
 
     if not json_path.exists() or force_redownload:
         hf_hub_download(

@@ -45,8 +45,6 @@ def download_llava_instruct_ru(
 
     if hf_token:
         login(token=hf_token)
-    else:
-        login()
 
     for json_filename in json_filenames:
         json_path = dataset_root / json_filename

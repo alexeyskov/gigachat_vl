@@ -95,8 +95,6 @@ def download_gqa_ru(
 
     if hf_token:
         login(token=hf_token)
-    else:
-        login()
 
     # 1. Download the entire dataset using snapshot_download (no HF cache)
     if not any(dataset_root_path.iterdir()) or force_redownload:

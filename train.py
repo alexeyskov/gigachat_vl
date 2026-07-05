@@ -33,6 +33,7 @@ dataset_specs_full = [
         "limit": 10_000,
         "dataset_root": "./datasets/Maya/",
         "visual_encoder": VISION_PATH,
+        "download": True,
     },
     {
         "config": SupportedDatasets.MSCOCO_CAPTION_ML.value,
@@ -56,18 +57,21 @@ dataset_specs_full = [
         "limit": 7_000,
         "dataset_root": "./datasets/GQA-ru/",
         "visual_encoder": VISION_PATH,
+        "download": True,
     },
     {
         "config": SupportedDatasets.LLAVA_INSTRUCT_RU.value,
         "limit": 5_000,
         "dataset_root": "./datasets/LLaVA-Instruct-ru",
         "visual_encoder": VISION_PATH,
+        "download": True,
     },
     {
         "config": SupportedDatasets.RU_VLM_REASONING_SFT.value,
         "limit": 3_500,
         "dataset_root": "./datasets/ru-vlm-reasoning-sft",
         "visual_encoder": VISION_PATH,
+        "download": True,
     },
 ]
 
@@ -77,6 +81,7 @@ dataset_specs_connector = [
         "limit": 100_000,
         "dataset_root": "./datasets/Maya/",
         "visual_encoder": VISION_PATH,
+        "download": True,
     },
     {
         "config": SupportedDatasets.MSCOCO_CAPTION_ML.value,
