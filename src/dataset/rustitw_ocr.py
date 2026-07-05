@@ -10,6 +10,27 @@ from torch.utils.data import IterableDataset as TorchIterableDataset
 from src.dataset.finevision import open_image
 from src.dataset.dataset_base import DatasetConfig, OCR_QUESTION_TEMPLATES
 
+RUSTITW_KAGGLE_HANDLE = "hardtype/rustitw-russian-language-visual-text-recognition"
+
+
+def download_rustitw_ocr(
+    dataset_root: Optional[str] = None,
+    force_redownload: bool = False,
+    hf_token: Optional[str] = None,
+) -> str:
+    try:
+        import kagglehub
+    except ImportError as e:
+        raise ImportError(
+            "RusTitW OCR dataset is missing locally and automatic download requires "
+            "`kagglehub`. Install it with `pip install kagglehub` or "
+            "`pip install -r requirements.txt`."
+        ) from e
+
+    path = kagglehub.dataset_download(RUSTITW_KAGGLE_HANDLE)
+    print(f"Path to RusTitW OCR dataset files: {path}")
+    return path
+
 
 def _rustitw_parts_for_root(dataset_root: Path) -> List[Dict[str, Any]]:
     parts = []
@@ -117,7 +138,12 @@ def load_rustitw_ocr(
 
     dataset_root = Path(dataset_root).resolve()
 
-    parts = _find_rustitw_parts(dataset_root)
+    try:
+        parts = _find_rustitw_parts(dataset_root)
+    except FileNotFoundError as e:
+        print(f"{e}\nDownloading RusTitW OCR from KaggleHub...")
+        downloaded_root = Path(download_rustitw_ocr(str(dataset_root))).resolve()
+        parts = _find_rustitw_parts(downloaded_root)
 
     datasets = []
     for part in parts:

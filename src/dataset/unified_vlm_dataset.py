@@ -25,7 +25,11 @@ from src.dataset.llava_instruct_ru import (
     load_llava_instruct_ru,
     LLaVAInstructRuIterableDataset,
 )
-from src.dataset.rustitw_ocr import load_rustitw_ocr, RusTitWOCRIterableDataset
+from src.dataset.rustitw_ocr import (
+    download_rustitw_ocr,
+    load_rustitw_ocr,
+    RusTitWOCRIterableDataset,
+)
 from src.dataset.openhermes_ru_text import (
     download_openhermes_ru_text,
     load_openhermes_ru_text,
@@ -108,7 +112,7 @@ class SupportedDatasets(Enum):
         total_samples=28_000,
         load_raw_func=load_rustitw_ocr,
         dataset_class=RusTitWOCRIterableDataset,
-        download_func=None,
+        download_func=download_rustitw_ocr,
         requires_download=True,
     )
 
@@ -238,6 +242,7 @@ def load_merged_dataset(
         "first_exhausted", "all_exhausted"
     ] = "all_exhausted",
     interleave_balance_probabilities: bool = False,
+    skip_missing_datasets: bool = False,
 ) -> MixedTorchIterableDataset:
     """
     Creates a single lazy streaming IterableDataset by mixing several datasets.
@@ -287,13 +292,22 @@ def load_merged_dataset(
             config.download_func(dataset_root)
 
         # 1. Get raw HF iterable
-        raw_ds = config.load_raw_func(
-            config=config,
-            limit=limit,
-            shuffle_buffer=global_shuffle_buffer,
-            seed=global_seed,
-            dataset_root=dataset_root,
-        )
+        try:
+            raw_ds = config.load_raw_func(
+                config=config,
+                limit=limit,
+                shuffle_buffer=global_shuffle_buffer,
+                seed=global_seed,
+                dataset_root=dataset_root,
+            )
+        except FileNotFoundError as e:
+            if skip_missing_datasets or bool(spec.get("skip_if_missing", False)):
+                print(
+                    f"Warning: skipping dataset {config.name} because local files "
+                    f"are missing under dataset_root={dataset_root!r}: {e}"
+                )
+                continue
+            raise
 
         # 2. Wrap with the dataset-specific converter (LLaVAPretrainRuIterableDataset / MSCOCOCaptionRuIterableDataset etc.)
         #    This step turns raw data into the unified {"image", "question", "answer"} format
@@ -321,6 +335,12 @@ def load_merged_dataset(
                 size = min(size, limit) if size is not None else limit
             if size != None:
                 effective_sizes.append(size)
+
+    if not custom_datasets:
+        raise ValueError(
+            "No datasets could be loaded. Check dataset_root paths or disable "
+            "skip_missing_datasets."
+        )
 
     if len(custom_datasets) == 1:
         return custom_datasets[0]
