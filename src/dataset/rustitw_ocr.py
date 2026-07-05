@@ -1,7 +1,7 @@
 import os
 import random
 from pathlib import Path
-from typing import Optional, Iterator, Dict, Any
+from typing import Optional, Iterator, Dict, Any, List
 
 from datasets import load_dataset, concatenate_datasets
 from datasets import IterableDataset as HFDataset
@@ -9,6 +9,81 @@ from torch.utils.data import IterableDataset as TorchIterableDataset
 
 from src.dataset.finevision import open_image
 from src.dataset.dataset_base import DatasetConfig, OCR_QUESTION_TEMPLATES
+
+
+def _rustitw_parts_for_root(dataset_root: Path) -> List[Dict[str, Any]]:
+    parts = []
+    for split in ["train", "test"]:
+        csv_path = dataset_root / split / "real" / "info.csv"
+        if csv_path.exists():
+            parts.append(
+                {
+                    "csv": csv_path,
+                    "images_dir": dataset_root / split / "real" / "images",
+                    "split": split,
+                }
+            )
+    return parts
+
+
+def _find_rustitw_parts(dataset_root: Path) -> List[Dict[str, Any]]:
+    direct_parts = _rustitw_parts_for_root(dataset_root)
+    if direct_parts:
+        if len(direct_parts) < 2:
+            found_splits = ", ".join(part["split"] for part in direct_parts)
+            print(
+                "Warning: RusTitW OCR loader found only these direct splits: "
+                f"{found_splits}. Continuing with available data."
+            )
+        return direct_parts
+
+    candidate_roots = []
+    seen_roots = set()
+    for csv_path in sorted(dataset_root.rglob("info.csv")):
+        if csv_path.parent.name != "real":
+            continue
+        split_dir = csv_path.parent.parent
+        if split_dir.name not in {"train", "test"}:
+            continue
+        candidate_root = split_dir.parent
+        if candidate_root in seen_roots:
+            continue
+        candidate_roots.append(candidate_root)
+        seen_roots.add(candidate_root)
+
+    candidate_roots.sort(key=lambda path: len(path.relative_to(dataset_root).parts))
+    best_partial_parts = None
+    best_partial_root = None
+    for candidate_root in candidate_roots:
+        parts = _rustitw_parts_for_root(candidate_root)
+        if len(parts) == 2:
+            print(f"Resolved RusTitW OCR nested dataset root: {candidate_root}")
+            return parts
+        if parts and best_partial_parts is None:
+            best_partial_parts = parts
+            best_partial_root = candidate_root
+
+    if best_partial_parts is not None:
+        found_splits = ", ".join(part["split"] for part in best_partial_parts)
+        print(
+            "Warning: RusTitW OCR loader found only these nested splits under "
+            f"{best_partial_root}: {found_splits}. Continuing with available data."
+        )
+        return best_partial_parts
+
+    found_info_csv = [str(path) for path in sorted(dataset_root.rglob("info.csv"))[:20]]
+    details = (
+        "\nFound info.csv candidates:\n" + "\n".join(found_info_csv)
+        if found_info_csv
+        else "\nNo info.csv files were found under dataset_root."
+    )
+    raise FileNotFoundError(
+        "RusTitW OCR dataset was not found. Expected either "
+        f"{dataset_root}/train/real/info.csv and {dataset_root}/test/real/info.csv, "
+        "or the same train/test/real layout inside a nested directory."
+        f"{details}"
+    )
+
 
 def load_rustitw_ocr(
     config: Optional[DatasetConfig] = None,
@@ -42,24 +117,10 @@ def load_rustitw_ocr(
 
     dataset_root = Path(dataset_root).resolve()
 
-    parts = [
-        {
-            "csv": dataset_root / "train/real/info.csv",
-            "images_dir": dataset_root / "train/real/images",
-            "split": "train"
-        },
-        {
-            "csv": dataset_root / "test/real/info.csv",
-            "images_dir": dataset_root / "test/real/images",
-            "split": "test"
-        },
-    ]
+    parts = _find_rustitw_parts(dataset_root)
 
     datasets = []
     for part in parts:
-        if not part["csv"].exists():
-            raise FileNotFoundError(f"CSV file not found: {part['csv']}")
-
         ds = load_dataset(
             "csv",
             data_files=str(part["csv"]),
