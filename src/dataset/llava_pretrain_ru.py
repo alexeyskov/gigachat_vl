@@ -12,6 +12,23 @@ from huggingface_hub import login
 from src.dataset.finevision import open_image
 from src.dataset.dataset_base import DatasetConfig
 
+
+def _has_llava_pretrain_images(dataset_root_path: Path) -> bool:
+    images_dir = dataset_root_path / "images"
+    if images_dir.exists() and any(images_dir.rglob("*.jpg")):
+        return True
+
+    for child in dataset_root_path.iterdir():
+        if (
+            child.is_dir()
+            and child.name.isdigit()
+            and any(child.rglob("*.jpg"))
+        ):
+            return True
+
+    return False
+
+
 def download_llava_pretrain_ru(
     dataset_root: str,
     force_redownload: bool = False,
@@ -54,7 +71,7 @@ def download_llava_pretrain_ru(
             resume_download=True,
         )
 
-    if not images_dir.exists() or force_redownload or not any(images_dir.iterdir()):
+    if force_redownload or not _has_llava_pretrain_images(dataset_root_path):
         if not zip_path.exists() or force_redownload:
             hf_hub_download(
                 repo_id="liuhaotian/LLaVA-Pretrain",
@@ -65,8 +82,6 @@ def download_llava_pretrain_ru(
                 force_download=force_redownload,
                 resume_download=True,
             )
-
-        images_dir.mkdir(exist_ok=True)
 
         print("Unziping...")
         with zipfile.ZipFile(zip_path, 'r') as z:
