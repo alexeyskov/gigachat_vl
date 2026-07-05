@@ -278,7 +278,13 @@ def load_merged_dataset(
                 f"Dataset {config.name} is not fully configured for loading"
             )
 
-        config.download_func(dataset_root)
+        if bool(spec.get("download", False)):
+            if config.download_func is None:
+                raise ValueError(
+                    f"Dataset {config.name} does not provide a download function. "
+                    "Prepare dataset_root manually and remove `download=True` from the spec."
+                )
+            config.download_func(dataset_root)
 
         # 1. Get raw HF iterable
         raw_ds = config.load_raw_func(
