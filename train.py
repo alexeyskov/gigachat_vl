@@ -132,8 +132,8 @@ if __name__ == "__main__":
     WARMUP_RATIO = 0.03
     warmup_steps = int(MAX_STEPS * WARMUP_RATIO)
 
-    TRAIN_BS = 2
-    GRAD_ACCUM = 8
+    TRAIN_BS = 1
+    GRAD_ACCUM = 16
     MAX_LENGTH = 4096
 
     SHUFFLE_BUFFER = 1000
