@@ -30,19 +30,19 @@ PROJECTOR_PATH = "./models/projector.pt"
 dataset_specs_full = [
     {
         "config": SupportedDatasets.LLAVA_PRETRAIN_RU.value,
-        "limit": 5_000,
+        "limit": 10_000,
         "dataset_root": "./datasets/Maya/",
         "visual_encoder": VISION_PATH,
     },
     {
         "config": SupportedDatasets.MSCOCO_CAPTION_ML.value,
-        "limit": 3_000,
+        "limit": 10_000,
         "dataset_root": "./datasets/mscoco-multilingual-30k/",
         "visual_encoder": VISION_PATH,
     },
     {
         "config": SupportedDatasets.RUSTITW_OCR.value,
-        "limit": 3_000,
+        "limit": 10_000,
         "dataset_root": "./datasets/rustitw_ocr/",
         "visual_encoder": VISION_PATH,
     },
