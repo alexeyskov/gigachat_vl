@@ -30,19 +30,19 @@ PROJECTOR_PATH = "./models/projector.pt"
 dataset_specs_full = [
     {
         "config": SupportedDatasets.LLAVA_PRETRAIN_RU.value,
-        "limit": 50_000,
+        "limit": 5_000,
         "dataset_root": "./datasets/Maya/",
         "visual_encoder": VISION_PATH,
     },
     {
         "config": SupportedDatasets.MSCOCO_CAPTION_ML.value,
-        "limit": 30_000,
+        "limit": 3_000,
         "dataset_root": "./datasets/mscoco-multilingual-30k/",
         "visual_encoder": VISION_PATH,
     },
     {
         "config": SupportedDatasets.RUSTITW_OCR.value,
-        "limit": 50_000,
+        "limit": 3_000,
         "dataset_root": "./datasets/rustitw_ocr/",
         "visual_encoder": VISION_PATH,
     },
@@ -53,10 +53,22 @@ dataset_specs_full = [
     },
     {
         "config": SupportedDatasets.GQA_RU.value,
-        "limit": 70_000,
+        "limit": 7_000,
         "dataset_root": "./datasets/GQA-ru/",
         "visual_encoder": VISION_PATH,
-    }
+    },
+    {
+        "config": SupportedDatasets.LLAVA_INSTRUCT_RU.value,
+        "limit": 5_000,
+        "dataset_root": "./datasets/LLaVA-Instruct-ru",
+        "visual_encoder": VISION_PATH,
+    },
+    {
+        "config": SupportedDatasets.RU_VLM_REASONING_SFT.value,
+        "limit": 3_500,
+        "dataset_root": "./datasets/ru-vlm-reasoning-sft",
+        "visual_encoder": VISION_PATH,
+    },
 ]
 
 dataset_specs_connector = [
