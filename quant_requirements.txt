@@ -1,0 +1,7 @@
+# Minimal environment for quant_model.py.
+# On Apple Silicon this uses the bitsandbytes CPU/macOS arm64 backend, not MPS.
+torch>=2.6.0
+transformers>=4.57.0
+accelerate>=1.10.0
+bitsandbytes>=0.49.2
+safetensors>=0.4.5
