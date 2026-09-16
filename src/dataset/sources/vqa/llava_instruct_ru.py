@@ -9,79 +9,69 @@ from torch.utils.data import IterableDataset as TorchIterableDataset
 from huggingface_hub import hf_hub_download
 from huggingface_hub import login
 
-from src.dataset.finevision import open_image
+from src.dataset.image_utils import open_image
 from src.dataset.dataset_base import DatasetConfig
 
 
-def _has_llava_pretrain_images(dataset_root_path: Path) -> bool:
-    images_dir = dataset_root_path / "images"
-    if images_dir.exists() and any(images_dir.rglob("*.jpg")):
-        return True
-
-    for child in dataset_root_path.iterdir():
-        if (
-            child.is_dir()
-            and child.name.isdigit()
-            and any(child.rglob("*.jpg"))
-        ):
-            return True
-
-    return False
-
-
-def download_llava_pretrain_ru(
+def download_llava_instruct_ru(
     dataset_root: str,
     force_redownload: bool = False,
     hf_token: Optional[str] = None,
 ) -> None:
     """
-    Downloads RU part of maya-multimodal/pretrain + original images LLaVA-Pretrain.
-    
+    Downloads translated instructions from deepvk/LLaVA-Instruct-ru and images
+    from adamo1139/llava-instruct-150k-with-images.
+
     Example structure:
     dataset_root/
-    ├── maya_russian_blip_laion_cc_sbu_558k.json
-    └── images/
-        ├── 0000/
-        ├── 0001/
+    ├── llava_instruct_ru_train.json
+    ├── llava_instruct_ru_val.json
+    └── train2017/
+        ├── 000000000009.jpg
+        ├── 000000000025.jpg
         ...
-        └── 0053/
-            └── *.jpg
     """
-    dataset_root_path = Path(dataset_root)
-    dataset_root_path.mkdir(parents=True, exist_ok=True)
+    dataset_root = Path(dataset_root)
+    dataset_root.mkdir(parents=True, exist_ok=True)
 
-    json_filename = "maya_russian_blip_laion_cc_sbu_558k.json"
-    zip_filename = "images.zip"
-    images_dir = dataset_root_path / "images"
+    json_filenames = [
+        "llava_instruct_ru_train.json",
+        "llava_instruct_ru_val.json"
+    ]
+    zip_filename = "train2017.zip"
+    images_dir = dataset_root / "train2017"
 
-    json_path = dataset_root_path / json_filename
-    zip_path = dataset_root_path / zip_filename
+    zip_path = dataset_root / zip_filename
 
     if hf_token:
         login(token=hf_token)
 
-    if not json_path.exists() or force_redownload:
-        hf_hub_download(
-            repo_id="maya-multimodal/pretrain",
-            filename=json_filename,
-            repo_type="dataset",
-            local_dir=dataset_root_path,
-            local_dir_use_symlinks=False,
-            force_download=force_redownload,
-            resume_download=True,
-        )
-
-    if force_redownload or not _has_llava_pretrain_images(dataset_root_path):
-        if not zip_path.exists() or force_redownload:
+    for json_filename in json_filenames:
+        json_path = dataset_root / json_filename
+        if not json_path.exists() or force_redownload:
             hf_hub_download(
-                repo_id="liuhaotian/LLaVA-Pretrain",
-                filename=zip_filename,
+                repo_id="deepvk/LLaVA-Instruct-ru",
+                filename=json_filename,
                 repo_type="dataset",
-                local_dir=dataset_root_path,
+                local_dir=dataset_root,
                 local_dir_use_symlinks=False,
                 force_download=force_redownload,
                 resume_download=True,
             )
+
+    if not images_dir.exists() or force_redownload or not any(images_dir.iterdir()):
+        if not zip_path.exists() or force_redownload:
+            hf_hub_download(
+                repo_id="adamo1139/llava-instruct-150k-with-images",
+                filename=zip_filename,
+                repo_type="dataset",
+                local_dir=dataset_root,
+                local_dir_use_symlinks=False,
+                force_download=force_redownload,
+                resume_download=True,
+            )
+
+        images_dir.mkdir(exist_ok=True)
 
         print("Unziping...")
         with zipfile.ZipFile(zip_path, 'r') as z:
@@ -90,31 +80,36 @@ def download_llava_pretrain_ru(
         zip_path.unlink()
 
 
-def load_llava_pretrain_ru(
+def load_llava_instruct_ru(
     config: Optional[DatasetConfig] = None,
     limit: Optional[int] = None,
     shuffle_buffer: int = 10000,
     seed: int = 42,
     dataset_root: Optional[str] = None,
 ) -> HFDataset:
+    """
+    Loads both train and val JSON files into a single streaming dataset.
+    """
     missing_files_error_msg = (
-        "For LLAVA_PRETRAIN_RU dataset_root is required (the folder containing "
-        "maya_russian_blip_laion_cc_sbu_558k.json plus either the original shard "
-        "folders like 00000/, 00001/, ... or an images/ folder)"
+        "For LLaVA_INSTRUCT_RU dataset_root is required (the folder containing "
+        "llava_instruct_ru_train.json, llava_instruct_ru_val.json + train2017/ folder)"
     )
 
     if dataset_root is None:
         raise ValueError(missing_files_error_msg)
 
-    russian_json_filename = "maya_russian_blip_laion_cc_sbu_558k.json"
-    json_path = os.path.join(dataset_root, russian_json_filename)
+    json_files = [
+        os.path.join(dataset_root, "llava_instruct_ru_train.json"),
+        os.path.join(dataset_root, "llava_instruct_ru_val.json"),
+    ]
+    images_path = os.path.join(dataset_root, "train2017")
 
-    if not os.path.exists(json_path):
+    if not all(os.path.exists(f) for f in json_files) or not os.path.exists(images_path):
         raise ValueError(missing_files_error_msg)
 
     ds = load_dataset(
         "json",
-        data_files=json_path,
+        data_files=json_files,
         streaming=True,
         split="train"
     )
@@ -126,10 +121,13 @@ def load_llava_pretrain_ru(
 
     return ds
 
-class LLaVAPretrainRuIterableDataset(TorchIterableDataset):
+class LLaVAInstructRuIterableDataset(TorchIterableDataset):
     """
-    Convert raw samples maya_russian_blip_laion_cc_sbu_558k.json
-    into {"image": PIL.Image, "question": str, "answer": str}
+    Converts raw LLaVA-Instruct-ru samples into the unified format:
+    {"image": PIL.Image, "question": str, "answer": str}
+
+    Takes only the first turn from conversations (human → gpt).
+    Images are loaded from train2017/{filename}.jpg
     """
     def __init__(
         self,
@@ -150,7 +148,7 @@ class LLaVAPretrainRuIterableDataset(TorchIterableDataset):
         if isinstance(raw_hf_iterable, (str, os.PathLike)):
             json_path = os.fspath(raw_hf_iterable)
             if not os.path.exists(json_path):
-                raise FileNotFoundError(f"LLaVA pretrain json file not found: {json_path}")
+                raise FileNotFoundError(f"LLaVA instruct json file not found: {json_path}")
 
             ds = load_dataset(
                 "json",
@@ -175,9 +173,10 @@ class LLaVAPretrainRuIterableDataset(TorchIterableDataset):
             if not image_rel_path:
                 continue
 
-            image_path = self._resolve_image_path(image_rel_path)
+            image_filename = os.path.basename(image_rel_path)
+            image_path = os.path.join(self.dataset_root, "train2017", image_filename)
 
-            if image_path is None:
+            if self.skip_missing_images and not os.path.exists(image_path):
                 continue
 
             try:
@@ -196,18 +195,3 @@ class LLaVAPretrainRuIterableDataset(TorchIterableDataset):
                 "question": question,
                 "answer": answer,
             }
-
-    def _resolve_image_path(self, image_rel_path: str) -> Optional[str]:
-        candidates = [
-            os.path.join(self.dataset_root, "images", image_rel_path),
-            os.path.join(self.dataset_root, image_rel_path),
-        ]
-
-        for candidate in candidates:
-            if os.path.exists(candidate):
-                return candidate
-
-        if self.skip_missing_images:
-            return None
-
-        return candidates[0]

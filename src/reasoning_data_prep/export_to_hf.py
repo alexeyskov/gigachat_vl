@@ -1,7 +1,3 @@
-import sys
-sys.path.append("/home/ymayma/projects/vlm-research/gigachat_vl")
-
-
 import argparse
 import json
 from pathlib import Path
@@ -37,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export staged reasoning records to HF-friendly parquet shards.",
     )
-    parser.add_argument("--input-dir", required=False, default="/home/ymayma/projects/vlm-research/data/reasoning/mme_en")
+    parser.add_argument("--input-dir", required=True)
     parser.add_argument("--split", default="train")
     parser.add_argument("--export-batch-size", type=int, default=512)
     parser.add_argument("--push-to-hub", action="store_true")

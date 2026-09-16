@@ -1,19 +1,20 @@
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional
 
-from src.dataset.mme_en import download_mme_en, load_mme_en
-from src.dataset.mm_vet_v2_en import download_mm_vet_v2_en, load_mm_vet_v2_en
-from src.dataset.mws_vision import download_mws_vision, load_mws_vision
-from src.dataset.mathvista_en import download_mathvista_en, load_mathvista_en
-from src.dataset.scienceqa_img_en import (
+from src.dataset.sources.vqa.mme_en import download_mme_en, load_mme_en
+from src.dataset.sources.vqa.mm_vet_v2_en import download_mm_vet_v2_en, load_mm_vet_v2_en
+from src.dataset.sources.vqa.mws_vision_ru import download_mws_vision, load_mws_vision
+from src.dataset.sources.vqa.mathvista_en import download_mathvista_en, load_mathvista_en
+from src.dataset.sources.vqa.scienceqa_img_en import (
     download_scienceqa_img_en,
     load_scienceqa_img_en,
 )
-from src.dataset.ok_vqa_train_en import (
+from src.dataset.sources.vqa.ok_vqa_train_en import (
     download_ok_vqa_train_en,
     load_ok_vqa_train_en,
 )
-from src.dataset.seed_bench_en import download_seed_bench_en, load_seed_bench_en
+from src.dataset.sources.vqa.seed_bench_en import download_seed_bench_en, load_seed_bench_en
+
 from src.reasoning_data_prep.datasets.mme_en import build_mme_en_reasoning_request
 from src.reasoning_data_prep.datasets.mm_vet_v2_en import (
     build_mm_vet_v2_en_reasoning_request,

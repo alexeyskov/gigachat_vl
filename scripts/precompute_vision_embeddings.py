@@ -16,13 +16,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.dataset.finevision import load_images_from_example
+from src.dataset.image_utils import load_images_from_example
 from src.dataset.precomputed_embeddings import (
     PrecomputedVisionEmbeddingDataset,
     embeddings_root_for_dataset,
     visual_encoder_dir_name,
 )
-from src.dataset.unified_vlm_dataset import SupportedDatasets
+from src.dataset.registry import SupportedDatasets
 from src.model.gigachat_vl import (
     DEFAULT_PATCH_VISION_IMAGE_SIZE,
     DEFAULT_PATCH_VISION_PATCH_SIZE,

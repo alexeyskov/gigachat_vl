@@ -1,12 +1,27 @@
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Optional, Callable, Type
 
 from torch.utils.data import IterableDataset as TorchIterableDataset
 
 
+class Language(StrEnum):
+    RU = "ru"
+    EN = "en"
+    MULTILINGUAL = "multilingual"
+
+
+class DatasetTask(StrEnum):
+    CAPTIONING = "captioning"
+    VQA = "vqa"
+    OCR = "ocr"
+    TEXT_INSTRUCTION = "text_instruction"
+    VISUAL_REASONING = "visual_reasoning"
+
+
 @dataclass
 class DatasetConfig:
-    """Configuration for each Russian VLM dataset"""
+    """Configuration for a dataset exposed through the unified VLM loader."""
 
     name: str
     total_samples: Optional[int]
@@ -17,11 +32,8 @@ class DatasetConfig:
         TorchIterableDataset
     ]  # class that converts raw -> {"image": PIL, "question": str, "answer": str}
     download_func: Optional[Callable] = None  # optional download function
-
-    # Metadata
-    requires_download: bool = (
-        False  # True = needs manual download before use (local files required)
-    )
+    languages: frozenset[Language] = frozenset()
+    tasks: frozenset[DatasetTask] = frozenset()
 
 
 CAPTIONING_QUESTION_TEMPLATES_EN = [

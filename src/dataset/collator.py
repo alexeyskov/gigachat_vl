@@ -1,13 +1,8 @@
 import os
-import json
-import random
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Iterator, List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
-from torch.utils.data import IterableDataset
-from PIL import Image
-from datasets import load_dataset, interleave_datasets
 
 from src.model.gigachat_vl import (
     GigaChatVL,
@@ -15,24 +10,8 @@ from src.model.gigachat_vl import (
     _build_chat_prompt,
     _build_chat_training_texts,
 )
+from src.dataset.image_utils import load_images_from_example, open_image
 from src.dataset.precomputed_embeddings import load_precomputed_vision_feature
-
-
-def open_image(x: Any) -> Image.Image:
-    if isinstance(x, Image.Image):
-        return x.convert("RGB")
-
-    if isinstance(x, str):
-        return Image.open(x).convert("RGB")
-
-    if isinstance(x, dict):
-        if x.get("path") is not None:
-            return Image.open(x["path"]).convert("RGB")
-        if x.get("bytes") is not None:
-            import io
-            return Image.open(io.BytesIO(x["bytes"])).convert("RGB")
-
-    raise ValueError(f"Unsupported image field type: {type(x)}")
 
 
 def build_prompt(tokenizer, question: str, num_images: int = 1) -> str:
@@ -134,91 +113,6 @@ def _truncate_prompt_answer_ids(
             return None
 
     return kept_prompt_ids, kept_answer_ids
-
-
-def load_images_from_example(ex: Dict[str, Any]) -> List[Image.Image]:
-    if "images" in ex and ex["images"] is not None:
-        raw_images = ex["images"]
-    else:
-        raw_images = ex.get("image")
-
-    if raw_images is None:
-        return []
-
-    if isinstance(raw_images, (list, tuple)):
-        return [open_image(x) for x in raw_images]
-
-    return [open_image(raw_images)]
-
-
-class FineVisionIterableDataset(IterableDataset):
-    """
-    Converts FineVision rows:
-      {
-        "images": [PIL.Image, ...],
-        "texts": [{"user": ..., "assistant": ...}, ...],
-        ...
-      }
-
-    into flat training samples:
-      {
-        "image": PIL.Image | List[PIL.Image] | None,
-        "question": str,
-        "answer": str,
-      }
-    """
-
-    def __init__(
-        self,
-        hf_iterable,
-        shuffle_conversations: bool = False,
-        seed: int = 42,
-        skip_multi_image: bool = True,
-        max_turns_per_row: Optional[int] = None,
-    ):
-        self.hf_iterable = hf_iterable
-        self.shuffle_conversations = shuffle_conversations
-        self.seed = seed
-        self.skip_multi_image = skip_multi_image
-        self.max_turns_per_row = max_turns_per_row
-
-    def __iter__(self) -> Iterator[Dict[str, Any]]:
-        rng = random.Random(self.seed)
-
-        for row in self.hf_iterable:
-            images = row.get("images", None)
-            texts = row.get("texts", None)
-
-            if not images or not texts:
-                continue
-
-            if self.skip_multi_image and len(images) != 1:
-                continue
-
-            image = images[0] if len(images) == 1 else list(images)
-
-            turns = list(texts)
-            if self.shuffle_conversations:
-                rng.shuffle(turns)
-
-            if self.max_turns_per_row is not None:
-                turns = turns[: self.max_turns_per_row]
-
-            for turn in turns:
-                if not isinstance(turn, dict):
-                    continue
-
-                user = turn.get("user", None)
-                assistant = turn.get("assistant", None)
-
-                if not user or not assistant:
-                    continue
-
-                yield {
-                    "image": image,
-                    "question": str(user).strip(),
-                    "answer": str(assistant).strip(),
-                }
 
 
 @dataclass
@@ -445,45 +339,3 @@ class VLMDataCollator:
             ),
             **vision_batch,
         }
-
-
-def load_finevision_streaming(
-    subsets: List[str],
-    shuffle_buffer: int,
-    seed: int,
-    dataset_root: Optional[str] = None,
-):
-    streams = []
-    for subset in subsets:
-        if dataset_root is not None:
-            subset_dir = os.path.join(dataset_root, subset)
-            data_files = sorted(
-                os.path.join(subset_dir, name)
-                for name in os.listdir(subset_dir)
-                if name.endswith(".parquet")
-            )
-            if not data_files:
-                raise FileNotFoundError(
-                    f"No parquet shards found for subset '{subset}' in {subset_dir}"
-                )
-
-            ds = load_dataset(
-                "parquet",
-                data_files={"train": data_files},
-                split="train",
-                streaming=True,
-            )
-        else:
-            ds = load_dataset(
-                "HuggingFaceM4/FineVision",
-                name=subset,
-                split="train",
-                streaming=True,
-            )
-        ds = ds.shuffle(seed=seed, buffer_size=shuffle_buffer)
-        streams.append(ds)
-
-    if len(streams) == 1:
-        return streams[0]
-
-    return interleave_datasets(streams)

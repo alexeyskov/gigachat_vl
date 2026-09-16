@@ -5,8 +5,7 @@ import sys
 import torch
 from transformers import Trainer, TrainingArguments, set_seed
 
-from src.dataset.finevision import VLMDataCollator
-from src.dataset.unified_vlm_dataset import SupportedDatasets, load_merged_dataset
+from src.dataset import SupportedDatasets, VLMDataCollator, load_merged_dataset
 from src.model.gigachat_vl import GigaChatVL
 from src.utils.train_utils import SaveVLMArtifactsCallback, save_artifacts
 

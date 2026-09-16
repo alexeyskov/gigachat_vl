@@ -222,7 +222,7 @@ model.drop_frozen_vision_modules()
 text-only training data:
 
 ```python
-from src.dataset.unified_vlm_dataset import SupportedDatasets
+from src.dataset import SupportedDatasets
 
 dataset_specs = [
     {

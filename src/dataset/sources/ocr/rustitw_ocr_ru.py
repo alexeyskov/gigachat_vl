@@ -7,7 +7,7 @@ from datasets import load_dataset, concatenate_datasets
 from datasets import IterableDataset as HFDataset
 from torch.utils.data import IterableDataset as TorchIterableDataset
 
-from src.dataset.finevision import open_image
+from src.dataset.image_utils import open_image
 from src.dataset.dataset_base import DatasetConfig, OCR_QUESTION_TEMPLATES
 
 RUSTITW_KAGGLE_HANDLE = "hardtype/rustitw-russian-language-visual-text-recognition"
