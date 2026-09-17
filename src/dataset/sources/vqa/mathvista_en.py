@@ -3,15 +3,15 @@ from typing import Optional
 
 from datasets import load_dataset
 from datasets import IterableDataset as HFDataset
-from huggingface_hub import snapshot_download, login
-
 from src.dataset.dataset_base import DatasetConfig
+from src.dataset.huggingface_utils import download_parquet_files
 
 
 def download_mathvista_en(
     dataset_root: str,
     force_redownload: bool = False,
     hf_token: Optional[str] = None,
+    max_parquet_files: Optional[int] = None,
 ) -> None:
     """
     Downloads AI4Math/MathVista parquet files from the data/ folder.
@@ -21,24 +21,13 @@ def download_mathvista_en(
     └── data/
         └── *.parquet
     """
-    dataset_root_path = Path(dataset_root)
-    dataset_root_path.mkdir(parents=True, exist_ok=True)
-
-    if hf_token:
-        login(token=hf_token)
-
-    has_parquet_files = any((dataset_root_path / "data").glob("*.parquet"))
-
-    if not has_parquet_files or force_redownload:
-        snapshot_download(
-            repo_id="AI4Math/MathVista",
-            repo_type="dataset",
-            local_dir=str(dataset_root_path),
-            local_dir_use_symlinks=False,
-            force_download=force_redownload,
-            resume_download=True,
-            allow_patterns=["data/*.parquet"],
-        )
+    download_parquet_files(
+        repo_id="AI4Math/MathVista",
+        dataset_root=dataset_root,
+        force_redownload=force_redownload,
+        hf_token=hf_token,
+        max_parquet_files=max_parquet_files,
+    )
 
 
 def load_mathvista_en(

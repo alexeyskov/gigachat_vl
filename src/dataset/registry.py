@@ -63,14 +63,58 @@ from src.dataset.sources.vqa.pixmo_ask_model_anything_en import (
 from src.dataset.sources.vqa.docvqa_en import (
     download_docvqa_en,
     load_docvqa_en,
-    load_infographicvqa_en,
     DocVQAEnIterableDataset,
+)
+
+from src.dataset.sources.vqa.infographicvqa_en import (
+    download_infographicvqa_en,
+    load_infographicvqa_en,
     InfographicVQAEnIterableDataset,
 )
 from src.dataset.sources.vqa.chartqa_en import (
     download_chartqa_en,
     load_chartqa_en,
     ChartQAEnIterableDataset,
+)
+from src.dataset.sources.vqa.textvqa_en import (
+    download_textvqa_en,
+    load_textvqa_en,
+    TextVQAEnIterableDataset,
+)
+from src.dataset.sources.vqa.mme_en import (
+    download_mme_en,
+    load_mme_en,
+    MMEEnIterableDataset,
+)
+from src.dataset.sources.vqa.mm_vet_v2_en import (
+    download_mm_vet_v2_en,
+    load_mm_vet_v2_en,
+    MMVetV2EnIterableDataset,
+)
+from src.dataset.sources.vqa.ok_vqa_train_en import (
+    download_ok_vqa_train_en,
+    load_ok_vqa_train_en,
+    OKVQATrainEnIterableDataset,
+)
+from src.dataset.sources.vqa.scienceqa_img_en import (
+    download_scienceqa_img_en,
+    load_scienceqa_img_en,
+    ScienceQAImgEnIterableDataset,
+)
+from src.dataset.sources.vqa.seed_bench_en import (
+    download_seed_bench_en,
+    load_seed_bench_en,
+    SeedBenchEnIterableDataset,
+)
+from src.dataset.sources.vqa.ai2d_en import (
+    download_ai2d_en,
+    load_ai2d_en,
+    AI2DEnIterableDataset,
+)
+from src.dataset.sources.vqa.a_okvqa_en import (
+    download_a_okvqa_en,
+    load_a_okvqa_en,
+    AOKVQAEnIterableDataset,
 )
 from src.dataset.sources.vqa.vlm_reasoning_sft_ru import (
     download_ru_vlm_reasoning_sft,
@@ -181,9 +225,6 @@ class SupportedDatasets(Enum):
         tasks=frozenset({DatasetTask.VQA}),
     )
 
-    # DocVQA and InfographicVQA are downloaded together by download_docvqa_en(...)
-    # and share the same dataset_root. They are loaded as separate datasets because
-    # their parquet schemas are different.
     DOCVQA_EN = DatasetConfig(
         name="lmms-lab/DocVQA/DocVQA",
         total_samples=10_500,
@@ -193,12 +234,13 @@ class SupportedDatasets(Enum):
         languages=frozenset({Language.EN}),
         tasks=frozenset({DatasetTask.VQA, DatasetTask.OCR}),
     )
+
     INFOGRAPHICVQA_EN = DatasetConfig(
         name="lmms-lab/DocVQA/InfographicVQA",
         total_samples=6_090,
         load_raw_func=load_infographicvqa_en,
         dataset_class=InfographicVQAEnIterableDataset,
-        download_func=download_docvqa_en,
+        download_func=download_infographicvqa_en,
         languages=frozenset({Language.EN}),
         tasks=frozenset({DatasetTask.VQA, DatasetTask.OCR}),
     )
@@ -209,6 +251,86 @@ class SupportedDatasets(Enum):
         load_raw_func=load_chartqa_en,
         dataset_class=ChartQAEnIterableDataset,
         download_func=download_chartqa_en,
+        languages=frozenset({Language.EN}),
+        tasks=frozenset({DatasetTask.VQA, DatasetTask.VISUAL_REASONING}),
+    )
+
+    TEXTVQA_EN = DatasetConfig(
+        name="lmms-lab-encoder/textvqa",
+        total_samples=34_602,
+        load_raw_func=load_textvqa_en,
+        dataset_class=TextVQAEnIterableDataset,
+        download_func=download_textvqa_en,
+        languages=frozenset({Language.EN}),
+        tasks=frozenset({DatasetTask.VQA, DatasetTask.OCR}),
+    )
+
+    SCIENCEQA_IMG_EN = DatasetConfig(
+        name="lmms-lab/ScienceQA-IMG",
+        total_samples=12_596,
+        load_raw_func=load_scienceqa_img_en,
+        dataset_class=ScienceQAImgEnIterableDataset,
+        download_func=download_scienceqa_img_en,
+        languages=frozenset({Language.EN}),
+        tasks=frozenset({DatasetTask.VQA, DatasetTask.VISUAL_REASONING}),
+    )
+
+    OK_VQA_TRAIN_EN = DatasetConfig(
+        name="Multimodal-Fatima/OK-VQA_train",
+        total_samples=None,
+        load_raw_func=load_ok_vqa_train_en,
+        dataset_class=OKVQATrainEnIterableDataset,
+        download_func=download_ok_vqa_train_en,
+        languages=frozenset({Language.EN}),
+        tasks=frozenset({DatasetTask.VQA, DatasetTask.VISUAL_REASONING}),
+    )
+
+    SEED_BENCH_EN = DatasetConfig(
+        name="lmms-lab/SEED-Bench",
+        total_samples=None,
+        load_raw_func=load_seed_bench_en,
+        dataset_class=SeedBenchEnIterableDataset,
+        download_func=download_seed_bench_en,
+        languages=frozenset({Language.EN}),
+        tasks=frozenset({DatasetTask.VQA, DatasetTask.VISUAL_REASONING}),
+    )
+
+    MM_VET_V2_EN = DatasetConfig(
+        name="whyu/mm-vet-v2",
+        total_samples=None,
+        load_raw_func=load_mm_vet_v2_en,
+        dataset_class=MMVetV2EnIterableDataset,
+        download_func=download_mm_vet_v2_en,
+        languages=frozenset({Language.EN}),
+        tasks=frozenset({DatasetTask.VQA, DatasetTask.VISUAL_REASONING}),
+    )
+
+    MME_EN = DatasetConfig(
+        name="lmms-lab/MME",
+        total_samples=None,
+        load_raw_func=load_mme_en,
+        dataset_class=MMEEnIterableDataset,
+        download_func=download_mme_en,
+        languages=frozenset({Language.EN}),
+        tasks=frozenset({DatasetTask.VQA}),
+    )
+
+    AI2D_EN = DatasetConfig(
+        name="lmms-lab-encoder/ai2d",
+        total_samples=3_088,
+        load_raw_func=load_ai2d_en,
+        dataset_class=AI2DEnIterableDataset,
+        download_func=download_ai2d_en,
+        languages=frozenset({Language.EN}),
+        tasks=frozenset({DatasetTask.VQA, DatasetTask.VISUAL_REASONING}),
+    )
+
+    A_OKVQA_EN = DatasetConfig(
+        name="HuggingFaceM4/A-OKVQA",
+        total_samples=17_056,
+        load_raw_func=load_a_okvqa_en,
+        dataset_class=AOKVQAEnIterableDataset,
+        download_func=download_a_okvqa_en,
         languages=frozenset({Language.EN}),
         tasks=frozenset({DatasetTask.VQA, DatasetTask.VISUAL_REASONING}),
     )

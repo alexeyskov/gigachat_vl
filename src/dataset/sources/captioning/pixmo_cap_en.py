@@ -1,21 +1,19 @@
 import random
 from pathlib import Path
-from typing import Optional, Iterator, Dict, Any, Sequence
+from typing import Optional, Iterator, Dict, Any
 
 from datasets import load_dataset
 from datasets import IterableDataset as HFDataset
 from torch.utils.data import IterableDataset as TorchIterableDataset
-from huggingface_hub import hf_hub_download, login
-
 from src.dataset.dataset_base import DatasetConfig, CAPTIONING_QUESTION_TEMPLATES_EN
+from src.dataset.huggingface_utils import download_parquet_files
 
 
 def download_pixmo_cap_en(
     dataset_root: str,
     force_redownload: bool = False,
     hf_token: Optional[str] = None,
-    num_shards: int = 30,
-    shard_indices: Optional[Sequence[int]] = None,
+    max_parquet_files: Optional[int] = 50,
 ) -> None:
     """
     Downloads a subset of dnth/pixmo-cap-images parquet shards.
@@ -31,7 +29,7 @@ def download_pixmo_cap_en(
 
     Approximate subset size:
         rows_per_shard ~= 584650 / 381 ~= 1534
-        30 shards ~= 46k samples
+        50 shards ~= 76k samples
 
     Expected local structure:
         dataset_root/
@@ -40,46 +38,13 @@ def download_pixmo_cap_en(
             ├── train-00001-of-00381.parquet
             └── ...
     """
-    repo_id = "dnth/pixmo-cap-images"
-    total_shards = 381
-
-    dataset_root_path = Path(dataset_root)
-    dataset_root_path.mkdir(parents=True, exist_ok=True)
-
-    if hf_token:
-        login(token=hf_token)
-
-    if shard_indices is None:
-        if num_shards <= 0:
-            raise ValueError("num_shards must be positive")
-        if num_shards > total_shards:
-            raise ValueError(f"num_shards cannot exceed {total_shards}")
-        shard_indices = list(range(num_shards))
-    else:
-        shard_indices = list(shard_indices)
-
-    for shard_idx in shard_indices:
-        if shard_idx < 0 or shard_idx >= total_shards:
-            raise ValueError(
-                f"Invalid shard index {shard_idx}; expected 0 <= idx < {total_shards}"
-            )
-
-    for shard_idx in shard_indices:
-        filename = f"data/train-{shard_idx:05d}-of-00381.parquet"
-        local_path = dataset_root_path / filename
-
-        if local_path.exists() and not force_redownload:
-            continue
-
-        hf_hub_download(
-            repo_id=repo_id,
-            filename=filename,
-            repo_type="dataset",
-            local_dir=dataset_root_path,
-            local_dir_use_symlinks=False,
-            force_download=force_redownload,
-            resume_download=True,
-        )
+    download_parquet_files(
+        repo_id="dnth/pixmo-cap-images",
+        dataset_root=dataset_root,
+        force_redownload=force_redownload,
+        hf_token=hf_token,
+        max_parquet_files=max_parquet_files,
+    )
 
 
 def load_pixmo_cap_en(

@@ -1,17 +1,23 @@
 from pathlib import Path
+import re
 from typing import Optional
 
 from datasets import load_dataset
 from datasets import IterableDataset as HFDataset
-from huggingface_hub import snapshot_download, login
+from torch.utils.data import IterableDataset as TorchIterableDataset
 
 from src.dataset.dataset_base import DatasetConfig
+from src.dataset.huggingface_utils import download_parquet_files
+
+
+IMAGE_TAG_PATTERN = re.compile(r"<\s*/?\s*img\s*>|<\s*image_\d+\s*>", re.IGNORECASE)
 
 
 def download_mm_vet_v2_en(
     dataset_root: str,
     force_redownload: bool = False,
     hf_token: Optional[str] = None,
+    max_parquet_files: Optional[int] = None,
 ) -> None:
     """
     Downloads whyu/mm-vet-v2 parquet files from the data/ folder.
@@ -21,24 +27,13 @@ def download_mm_vet_v2_en(
     └── data/
         └── *.parquet
     """
-    dataset_root_path = Path(dataset_root)
-    dataset_root_path.mkdir(parents=True, exist_ok=True)
-
-    if hf_token:
-        login(token=hf_token)
-
-    has_parquet_files = any((dataset_root_path / "data").glob("*.parquet"))
-
-    if not has_parquet_files or force_redownload:
-        snapshot_download(
-            repo_id="whyu/mm-vet-v2",
-            repo_type="dataset",
-            local_dir=str(dataset_root_path),
-            local_dir_use_symlinks=False,
-            force_download=force_redownload,
-            resume_download=True,
-            allow_patterns=["data/*.parquet"],
-        )
+    download_parquet_files(
+        repo_id="whyu/mm-vet-v2",
+        dataset_root=dataset_root,
+        force_redownload=force_redownload,
+        hf_token=hf_token,
+        max_parquet_files=max_parquet_files,
+    )
 
 
 def load_mm_vet_v2_en(
@@ -81,3 +76,28 @@ def load_mm_vet_v2_en(
         ds = ds.take(limit)
 
     return ds
+
+
+class MMVetV2EnIterableDataset(TorchIterableDataset):
+    """Converts single-image MM-Vet-v2 rows into English VQA samples."""
+
+    def __init__(self, raw_hf_iterable, dataset_root=None, seed=42, skip_missing_images=True):
+        self.raw_hf_iterable = raw_hf_iterable
+        self.skip_missing_images = skip_missing_images
+
+    def __iter__(self):
+        for row in self.raw_hf_iterable:
+            if any(row.get(f"image_{index}") is not None for index in range(1, 18)):
+                continue
+            image = row.get("image_0")
+            question = IMAGE_TAG_PATTERN.sub(" ", str(row.get("question", "")))
+            question = re.sub(r"\s+", " ", question).strip()
+            answer = str(row.get("answer", "")).strip()
+            if image is None and self.skip_missing_images:
+                continue
+            if "<OR>" in answer:
+                answer = next((part.strip() for part in answer.split("<OR>") if part.strip()), "")
+            if "<AND>" in answer:
+                answer = " and ".join(part.strip() for part in answer.split("<AND>") if part.strip())
+            if question and answer:
+                yield {"image": image, "question": question, "answer": answer}

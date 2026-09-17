@@ -10,14 +10,14 @@ from src.dataset.dataset_base import DatasetConfig
 from src.dataset.huggingface_utils import download_parquet_files
 
 
-DOCVQA_QUESTION_TEMPLATES_EN = [
-    "Use the document to answer the question.\n\nQuestion: {question}",
-    "Answer the question based on the document.\n\nQuestion: {question}",
-    "Read the document and answer the question.\n\nQuestion: {question}",
+INFOGRAPHICVQA_QUESTION_TEMPLATES_EN = [
+    "Use the infographic to answer the question.\n\nQuestion: {question}",
+    "Answer the question based on the infographic.\n\nQuestion: {question}",
+    "Read the infographic and answer the question.\n\nQuestion: {question}",
 ]
 
 
-def download_docvqa_en(
+def download_infographicvqa_en(
     dataset_root: str,
     force_redownload: bool = False,
     hf_token: Optional[str] = None,
@@ -29,11 +29,11 @@ def download_docvqa_en(
         force_redownload=force_redownload,
         hf_token=hf_token,
         max_parquet_files=max_parquet_files,
-        parquet_pattern="DocVQA/train-*.parquet",
+        parquet_pattern="InfographicVQA/train-*.parquet",
     )
 
 
-def load_docvqa_en(
+def load_infographicvqa_en(
     config: Optional[DatasetConfig] = None,
     limit: Optional[int] = None,
     shuffle_buffer: int = 100,
@@ -42,11 +42,11 @@ def load_docvqa_en(
 ) -> HFDataset:
     if dataset_root is None:
         raise ValueError(
-            "For DOCVQA_EN dataset_root is required. "
-            "Expected dataset_root/DocVQA/train-*.parquet files."
+            "For INFOGRAPHICVQA_EN dataset_root is required. "
+            "Expected dataset_root/InfographicVQA/train-*.parquet files."
         )
 
-    data_dir = Path(dataset_root) / "DocVQA"
+    data_dir = Path(dataset_root) / "InfographicVQA"
 
     parquet_files = sorted(
         data_dir.glob("train-*.parquet")
@@ -54,8 +54,8 @@ def load_docvqa_en(
 
     if not parquet_files:
         raise FileNotFoundError(
-            f"No DocVQA train parquet files found under {data_dir}. "
-            "Run download_docvqa_en(...) first."
+            f"No InfographicVQA train parquet files found under {data_dir}. "
+            "Run download_infographicvqa_en(...) first."
         )
 
     ds = load_dataset(
@@ -77,7 +77,7 @@ def load_docvqa_en(
     return ds
 
 
-class DocVQAEnIterableDataset(TorchIterableDataset):
+class InfographicVQAEnIterableDataset(TorchIterableDataset):
     def __init__(
         self,
         raw_hf_iterable,
@@ -126,7 +126,7 @@ class DocVQAEnIterableDataset(TorchIterableDataset):
 
             if self.random.random() < 0.4:
                 template = self.random.choice(
-                    DOCVQA_QUESTION_TEMPLATES_EN
+                    INFOGRAPHICVQA_QUESTION_TEMPLATES_EN
                 )
                 question = template.format(
                     question=question

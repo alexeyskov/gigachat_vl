@@ -5,18 +5,14 @@ from typing import Optional, Iterator, Dict, Any
 from datasets import load_dataset
 from datasets import IterableDataset as HFDataset
 from torch.utils.data import IterableDataset as TorchIterableDataset
-from huggingface_hub import snapshot_download, login
 
 from src.dataset.dataset_base import DatasetConfig
+from src.dataset.huggingface_utils import download_parquet_files
 
 CHARTQA_QUESTION_TEMPLATES_EN = [
-    "Answer the question based on the chart. Give only a short, direct answer.\n\nQuestion: {question}",
-    "Look at the chart and answer the question briefly.\n\nQuestion: {question}",
-    "Use the information shown in the chart to answer. Keep the answer concise.\n\nQuestion: {question}",
-    "Based on the chart, provide the final answer only.\n\nQuestion: {question}",
-    "Read the chart and answer the question with a short answer.\n\nQuestion: {question}",
-    "Use only the visual information in the chart. Respond with the final answer.\n\nQuestion: {question}",
-    "Answer the question using the chart. If calculation is needed, return only the final value.\n\nQuestion: {question}",
+    "Use the chart to answer the question.\n\nQuestion: {question}",
+    "Answer the question based on the chart.\n\nQuestion: {question}",
+    "Read the chart and answer the question.\n\nQuestion: {question}",
 ]
 
 
@@ -24,34 +20,16 @@ def download_chartqa_en(
     dataset_root: str,
     force_redownload: bool = False,
     hf_token: Optional[str] = None,
+    max_parquet_files: Optional[int] = None,
 ) -> None:
-    """
-    Downloads lmms-lab/ChartQA locally.
-
-    Expected local structure:
-    dataset_root/
-    └── data/
-        ├── train-*.parquet
-        ├── validation-*.parquet
-        └── test-*.parquet
-    """
-    dataset_root_path = Path(dataset_root)
-    dataset_root_path.mkdir(parents=True, exist_ok=True)
-
-    if hf_token:
-        login(token=hf_token)
-    else:
-        login()
-
-    if not any(dataset_root_path.iterdir()) or force_redownload:
-        snapshot_download(
-            repo_id="lmms-lab/ChartQA",
-            repo_type="dataset",
-            local_dir=str(dataset_root_path),
-            local_dir_use_symlinks=False,
-            force_download=force_redownload,
-            resume_download=True,
-        )
+    download_parquet_files(
+        repo_id="lmms-lab/ChartQA",
+        dataset_root=dataset_root,
+        force_redownload=force_redownload,
+        hf_token=hf_token,
+        max_parquet_files=max_parquet_files,
+        parquet_pattern="data/*.parquet",
+    )
 
 
 def load_chartqa_en(
@@ -135,10 +113,12 @@ class ChartQAEnIterableDataset(TorchIterableDataset):
             if not question or not answer:
                 continue
 
-            question_template = self.random.choice(CHARTQA_QUESTION_TEMPLATES_EN)
+            if self.random.random() < 0.4:
+                question_template = self.random.choice(CHARTQA_QUESTION_TEMPLATES_EN)
+                question = question_template.format(question=question)
 
             yield {
                 "image": image,
-                "question": question_template.format(question=question),
+                "question": question,
                 "answer": answer,
             }
