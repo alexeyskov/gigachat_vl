@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# Shared native backend for DeepSeek-V2, GPT-OSS, LFM2-MoE and our
+# checkpoint-compatible SmallThinker implementation.
+transformers==5.15.0
+peft==0.21.2

@@ -12,27 +12,45 @@ import io
 from src.model.gigachat_vl import GigaChatVLForInference
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="GigaChat-VL OpenAI-compatible server")
-    parser.add_argument("--checkpoint_dir", type=str, default="/media/alexey/SSDData/experiments/gigachat_vl/outputs/gigachat_vl_finevision_local/")
-    parser.add_argument("--llm_path", type=str, default="/media/alexey/HDDLargeData/models/VLM/GigaChat3.1-10B-A1.8B-bf16")
-    parser.add_argument("--vision_path", type=str, default="/media/alexey/HDDLargeData/models/VLM/gemma-4-31B-it/")
+    parser = argparse.ArgumentParser(description="VLM OpenAI-compatible server")
+    parser.add_argument(
+        "--checkpoint_dir", type=str,
+        default="runs/deepseek_v2_lite_vl_gated_alignment",
+    )
+    parser.add_argument(
+        "--llm_path", type=str, default=None,
+        help="Optional language-model override; otherwise use checkpoint metadata and saved weights.",
+    )
+    parser.add_argument(
+        "--vision_path", type=str, default=None,
+        help="Optional vision-encoder override; otherwise use checkpoint metadata.",
+    )
+    parser.add_argument(
+        "--use_4bit_llm", action="store_true",
+        help="Enable 4-bit loading for compatible legacy checkpoints; unsupported with DeepSeek visual gates.",
+    )
     parser.add_argument("--port", type=int, default=8000)
     return parser.parse_args()
 
 model = None
 
-def load_model(checkpoint_dir: str, llm_path: str, vision_path: str):
+def load_model(
+    checkpoint_dir: str,
+    llm_path: str | None = None,
+    vision_path: str | None = None,
+    use_4bit_llm: bool = False,
+):
     global model
-    print("Loading GigaChatVLForInference model...")
+    print("Loading VLM checkpoint...")
     model = GigaChatVLForInference(
         checkpoint_dir=checkpoint_dir,
         llm_name=llm_path,
         vision_name=vision_path,
-        use_4bit_llm=True,
+        use_4bit_llm=use_4bit_llm,
     )
     print("Model loaded successfully!")
 
-app = FastAPI(title="GigaChat-VL OpenAI-compatible server")
+app = FastAPI(title="VLM OpenAI-compatible server")
 
 
 def process_openai_message(messages: list) -> tuple[str, Image.Image | None]:
@@ -153,6 +171,6 @@ async def chat_completions(request: Request):
 if __name__ == "__main__":
     args = parse_args()
     
-    load_model(args.checkpoint_dir, args.llm_path, args.vision_path)
+    load_model(args.checkpoint_dir, args.llm_path, args.vision_path, args.use_4bit_llm)
     
     uvicorn.run(app, host="0.0.0.0", port=args.port, log_level="info")

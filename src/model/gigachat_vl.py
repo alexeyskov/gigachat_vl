@@ -1,6 +1,7 @@
 import gc
 import importlib.util
 import json
+import math
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -26,6 +27,13 @@ from transformers import (
 )
 from transformers.utils.quantization_config import QuantizationMethod
 from peft import LoraConfig, PeftModel, get_peft_model
+
+from src.model.visual_expert_gates import NativeDeepseekVisualGates
+from src.model.text_moe_backbones import (
+    TEXT_MOE_NAMES,
+    apply_text_moe_chat_template,
+    text_moe_load_kwargs,
+)
 
 
 IMAGE_TOKEN = "[image_token]"
@@ -968,9 +976,18 @@ def _build_chat_prompt(
     text: str,
     num_images: int = 1,
     chat_template_mode: str = "tokenizer",
+    model_type: Optional[str] = None,
 ) -> str:
     user_text = _build_multimodal_user_text(text, num_images=num_images)
     mode = _normalize_chat_template_mode(chat_template_mode)
+
+    if model_type in TEXT_MOE_NAMES:
+        if mode != "tokenizer":
+            raise ValueError(f"{model_type} requires chat_template_mode='tokenizer'.")
+        return apply_text_moe_chat_template(
+            tokenizer, [{"role": "user", "content": user_text}],
+            model_type=model_type, add_generation_prompt=True,
+        )
 
     if mode == "short":
         return _build_short_gigachat_prompt(tokenizer, user_text)
@@ -998,9 +1015,24 @@ def _build_chat_training_texts(
     answer: str,
     num_images: int = 1,
     chat_template_mode: str = "tokenizer",
+    model_type: Optional[str] = None,
 ) -> tuple[str, str]:
     user_text = _build_multimodal_user_text(question, num_images=num_images)
     mode = _normalize_chat_template_mode(chat_template_mode)
+
+    if model_type in TEXT_MOE_NAMES:
+        prompt = _build_chat_prompt(
+            tokenizer, question, num_images=num_images,
+            chat_template_mode=mode, model_type=model_type,
+        )
+        full_text = apply_text_moe_chat_template(
+            tokenizer,
+            [{"role": "user", "content": user_text}, {"role": "assistant", "content": str(answer)}],
+            model_type=model_type, add_generation_prompt=False,
+        )
+        if not full_text.startswith(prompt):
+            raise ValueError(f"{model_type} chat template produced inconsistent prompt/answer prefixes.")
+        return prompt, full_text
 
     if mode == "short":
         prompt = _build_short_gigachat_prompt(tokenizer, user_text)
@@ -1057,7 +1089,11 @@ def _chat_stop_token_ids(tokenizer) -> List[int]:
         "<|message_sep|>\n\n",
         "<|message_sep|>\n",
         "<|message_sep|>",
+        "<|return|>",
+        "<|im_end|>",
     ):
+        if token not in tokenizer.get_vocab():
+            continue
         token_id = _single_token_id(tokenizer, token)
         if token_id is not None:
             stop_ids.append(token_id)
@@ -1303,11 +1339,16 @@ class VisualTokenExpert(nn.Module):
 
 
 class VLExpertMLPWrapper(nn.Module):
-    def __init__(self, base_mlp: nn.Module, config: Any):
+    def __init__(
+        self, base_mlp: nn.Module, config: Any,
+        text_visual_gates: bool = False, text_visual_gate_init: float = 0.9,
+    ):
         super().__init__()
         self.base_mlp = base_mlp
         hidden_size = getattr(config, "hidden_size")
         intermediate_size = getattr(config, "moe_intermediate_size", None)
+        if intermediate_size is None:
+            intermediate_size = getattr(config, "moe_ffn_hidden_size", None)
         if intermediate_size is None:
             intermediate_size = getattr(base_mlp, "intermediate_size", None)
         if intermediate_size is None:
@@ -1319,6 +1360,10 @@ class VLExpertMLPWrapper(nn.Module):
             initializer_range=getattr(config, "initializer_range", 0.02),
         )
         self.visual_token_mask: Optional[torch.Tensor] = None
+        self.text_visual_gate = (
+            NativeDeepseekVisualGates(base_mlp, config, init_open=text_visual_gate_init)
+            if text_visual_gates else None
+        )
 
     def _resolve_mask(self, hidden_states: torch.Tensor) -> Optional[torch.Tensor]:
         if self.visual_token_mask is None:
@@ -1329,16 +1374,40 @@ class VLExpertMLPWrapper(nn.Module):
         if tuple(mask.shape) == tuple(expected_shape):
             return mask.to(device=hidden_states.device, dtype=torch.bool)
 
-        if mask.numel() == hidden_states.numel() // hidden_states.size(-1):
+        if hidden_states.ndim == 2 and mask.numel() == hidden_states.size(0):
             return mask.reshape(expected_shape).to(device=hidden_states.device, dtype=torch.bool)
+
+        if hidden_states.ndim == 3 and mask.ndim == 2:
+            batch_size, seq_length = expected_shape
+            # Generation expands the batch for beams/return sequences. With
+            # no KV cache it also appends text positions to the full prompt.
+            if batch_size % mask.size(0) == 0:
+                mask = mask.repeat_interleave(batch_size // mask.size(0), dim=0)
+                if seq_length >= mask.size(1):
+                    mask = F.pad(mask, (0, seq_length - mask.size(1)), value=False)
+                    return mask.to(device=hidden_states.device, dtype=torch.bool)
+                # Cached decoding contains only new text tokens, not the
+                # image positions from the original prompt.
+                return None
 
         return None
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        base_out = self.base_mlp(hidden_states)
+    def forward(self, *args, **kwargs):
+        # SmallThinker passes (pre-attention router_input, normalized states).
+        # Other backbones pass only states. Preserve each original FFN contract.
+        hidden_states = kwargs.get("hidden_states", args[-1] if args else None)
+        if hidden_states is None:
+            raise ValueError("Visual expert wrapper requires hidden_states.")
         mask = self._resolve_mask(hidden_states)
+        if self.text_visual_gate is not None and mask is not None and torch.any(mask):
+            base_out = self.text_visual_gate(self.base_mlp, hidden_states, mask)
+        else:
+            base_out = self.base_mlp(*args, **kwargs)
         if mask is None or not torch.any(mask):
             return base_out
+
+        original_output = base_out
+        base_out = original_output[0] if isinstance(original_output, tuple) else original_output
 
         flat_mask = mask.reshape(-1)
         flat_hidden = hidden_states.reshape(-1, hidden_states.size(-1))
@@ -1359,7 +1428,8 @@ class VLExpertMLPWrapper(nn.Module):
             dtype=base_out.dtype,
         )
         flat_delta.index_copy_(0, token_indices.to(base_out.device), selected_delta)
-        return base_out + flat_delta.reshape_as(base_out)
+        output = base_out + flat_delta.reshape_as(base_out)
+        return (output, *original_output[1:]) if isinstance(original_output, tuple) else output
 
 
 class MLPProjector(nn.Module):
@@ -2247,6 +2317,13 @@ def _resolve_llm_decoder_layers(model: nn.Module) -> nn.ModuleList:
     raise RuntimeError("Could not locate decoder layers in the LLM.")
 
 
+def _resolve_layer_ffn(layer: nn.Module) -> str:
+    for name in ("mlp", "feed_forward", "block_sparse_moe"):
+        if isinstance(getattr(layer, name, None), nn.Module):
+            return name
+    raise RuntimeError(f"Could not locate a supported FFN in {type(layer).__name__}.")
+
+
 def _resolve_vl_expert_layer_indices(
     num_hidden_layers: Optional[int],
     num_lora_layers: int,
@@ -2380,6 +2457,14 @@ class GigaChatVL(nn.Module):
             follows the default LoRA layer selection, and an empty list disables
             visual experts even if the flag is present.
         vl_experts_path: Optional saved visual expert state dict.
+        text_visual_gates: Learn an independent visual-input gate for every
+            native DeepSeek-V2 routed/shared expert (and the first dense FFN).
+            Requires unquantized, non-LoRA LLM weights and VL experts.
+        text_visual_gate_init: Initial deterministic gate openness in (0, 1).
+        text_visual_gate_reg_weight: Weight of the expected L0 gate penalty on
+            multimodal training batches. Zero disables the penalty.
+        llm_trust_remote_code: Whether to load custom LLM code. Use False for
+            the native DeepSeek-V2 implementation.
         device: Optional torch device or device string. Defaults to the current
             CUDA device when available, otherwise CPU.
 
@@ -2388,6 +2473,10 @@ class GigaChatVL(nn.Module):
             as training new donor-vision LoRA adapters while
             ``freeze_vision=True``.
     """
+
+    # Let Trainer count shifted causal targets correctly when normalizing
+    # losses over multiple gradient-accumulation microbatches.
+    loss_type = "ForCausalLM"
 
     def __init__(
         self,
@@ -2439,11 +2528,35 @@ class GigaChatVL(nn.Module):
         vl_expert_layers: Optional[List[int]] = None,
         vl_experts_path: Optional[str] = None,
         device: Optional[Any] = None,
+        text_visual_gates: bool = False,
+        text_visual_gate_init: float = 0.9,
+        text_visual_gate_reg_weight: float = 0.0,
+        llm_trust_remote_code: bool = True,
     ):
         super().__init__()
 
         self.model_device = single_device(device)
         self.llm_name = llm_name
+        self.llm_trust_remote_code = bool(llm_trust_remote_code)
+        self.text_visual_gates = bool(text_visual_gates)
+        self.text_visual_gate_init = float(text_visual_gate_init)
+        self.text_visual_gate_reg_weight = float(text_visual_gate_reg_weight)
+        if not 0.0 < self.text_visual_gate_init < 1.0:
+            raise ValueError("text_visual_gate_init must be strictly between 0 and 1.")
+        if not math.isfinite(self.text_visual_gate_reg_weight) or self.text_visual_gate_reg_weight < 0:
+            raise ValueError("text_visual_gate_reg_weight must be finite and nonnegative.")
+        if self.text_visual_gate_reg_weight and not self.text_visual_gates:
+            raise ValueError("A visual gate penalty requires text_visual_gates=True.")
+        if self.text_visual_gates:
+            if not (enable_vl_experts or vl_experts_path is not None):
+                raise ValueError("text_visual_gates requires enable_vl_experts=True.")
+            if use_4bit_llm or use_llm_lora or lora_path is not None:
+                raise ValueError(
+                    "Text visual gates currently require unquantized native DeepSeek-V2: "
+                    "set use_4bit_llm=False and use_llm_lora=False."
+                )
+            if self.llm_trust_remote_code:
+                raise ValueError("Text visual gates require llm_trust_remote_code=False.")
         self.chat_template_mode = _normalize_chat_template_mode(chat_template_mode)
         self.max_image_side = None
         if max_image_side is not None:
@@ -2522,15 +2635,24 @@ class GigaChatVL(nn.Module):
             field_names=["routed_scaling_factor"],
         )
 
+        llm_load_kwargs = dict(
+            dtype=llm_dtype, quantization_config=llm_quant_config,
+            device_map=llm_device_map, low_cpu_mem_usage=True,
+            trust_remote_code=self.llm_trust_remote_code, output_loading_info=True,
+        )
+        backbone_kwargs = text_moe_load_kwargs(
+            llm_name, use_4bit_llm=use_4bit_llm,
+            use_llm_lora=self.use_llm_lora, text_visual_gates=self.text_visual_gates,
+        )
+        llm_load_kwargs.update(backbone_kwargs)
+        if backbone_kwargs:
+            self.llm_trust_remote_code = False
+            if self.chat_template_mode != "tokenizer":
+                raise ValueError("Text MoE backbones require chat_template_mode='tokenizer'.")
+
         with _without_transformers_allocator_warmup():
             llm_load = AutoModelForCausalLM.from_pretrained(
-                llm_name,
-                dtype=llm_dtype,
-                quantization_config=llm_quant_config,
-                device_map=llm_device_map,
-                low_cpu_mem_usage=True,
-                trust_remote_code=True,
-                output_loading_info=True,
+                llm_name, **llm_load_kwargs,
             )
         if isinstance(llm_load, tuple):
             self.llm, llm_loading_info = llm_load
@@ -2562,7 +2684,9 @@ class GigaChatVL(nn.Module):
                 f"missing={_preview_loading_keys(missing_llm_keys)}"
             )
 
-        self.llm.resize_token_embeddings(len(self.tokenizer))
+        # Some checkpoints pad their vocabulary beyond the tokenizer's last ID
+        # (notably GPT-OSS). Keep those rows and add new ones only when needed.
+        self.llm.resize_token_embeddings(max(len(self.tokenizer), self.llm.config.vocab_size))
         self.llm.config.use_cache = False
 
         if llm_quant_config is not None:
@@ -2586,7 +2710,7 @@ class GigaChatVL(nn.Module):
                 )
                 for param in self.llm.parameters():
                     param.requires_grad = False
-        elif device is not None:
+        elif device is not None or self.text_visual_gates or backbone_kwargs:
             self.llm.to(device=self.model_device, dtype=llm_dtype)
 
         self.llm_hidden_size = self.llm.config.hidden_size
@@ -2910,9 +3034,9 @@ class GigaChatVL(nn.Module):
         base_state_dict: Dict[str, torch.Tensor] = {}
 
         for key, value in state_dict.items():
-            if ".mlp.visual_expert." in key:
+            if ".visual_expert." in key or ".text_visual_gate." in key:
                 continue
-            base_key = key.replace(".mlp.base_mlp.", ".mlp.")
+            base_key = key.replace(".base_mlp.", ".")
             base_state_dict[base_key] = value.detach().cpu()
 
         return _clone_shared_tensors_in_state_dict(base_state_dict)
@@ -3011,27 +3135,39 @@ class GigaChatVL(nn.Module):
         self.vision_tower.load_non_llm_state_dict(state_dict)
 
     def _install_vl_experts(self) -> None:
+        if self.text_visual_gates and getattr(self.llm.config, "model_type", None) != "deepseek_v2":
+            raise ValueError("Text visual gates currently support only native DeepSeek-V2.")
         layers = _resolve_llm_decoder_layers(self.llm)
         layer_indices = _resolve_vl_expert_layer_indices(
             num_hidden_layers=len(layers),
             num_lora_layers=self.num_lora_layers,
             vl_expert_layers=self.vl_expert_layers,
         )
+        if self.text_visual_gates and not layer_indices:
+            raise ValueError("text_visual_gates requires at least one VL expert layer.")
 
         expert_device, expert_dtype = _module_device_dtype(self.llm.get_input_embeddings())
         installed_indices = []
 
         for layer_idx in layer_indices:
             layer = layers[layer_idx]
-            if not hasattr(layer, "mlp"):
-                raise RuntimeError(f"Layer {layer_idx} does not expose an `mlp` module.")
+            ffn_name = _resolve_layer_ffn(layer)
+            ffn = getattr(layer, ffn_name)
 
-            if isinstance(layer.mlp, VLExpertMLPWrapper):
-                wrapper = layer.mlp
+            if isinstance(ffn, VLExpertMLPWrapper):
+                wrapper = ffn
             else:
-                wrapper = VLExpertMLPWrapper(layer.mlp, self.llm.config)
+                wrapper = VLExpertMLPWrapper(
+                    ffn, self.llm.config,
+                    text_visual_gates=self.text_visual_gates,
+                    text_visual_gate_init=self.text_visual_gate_init,
+                )
                 wrapper.visual_expert.to(device=expert_device, dtype=expert_dtype)
-                layer.mlp = wrapper
+                if wrapper.text_visual_gate is not None:
+                    # Keep the small gate logits in fp32 for their stochastic
+                    # sampling and regularization; activations retain LLM dtype.
+                    wrapper.text_visual_gate.to(device=expert_device)
+                setattr(layer, ffn_name, wrapper)
 
             installed_indices.append(layer_idx)
 
@@ -3043,7 +3179,8 @@ class GigaChatVL(nn.Module):
 
         layers = _resolve_llm_decoder_layers(self.llm)
         for layer_idx in self.vl_expert_layer_indices:
-            mlp = layers[layer_idx].mlp
+            layer = layers[layer_idx]
+            mlp = getattr(layer, _resolve_layer_ffn(layer))
             if not isinstance(mlp, VLExpertMLPWrapper):
                 raise RuntimeError(
                     f"Expected layer {layer_idx} to contain a VLExpertMLPWrapper."
@@ -3065,12 +3202,52 @@ class GigaChatVL(nn.Module):
         for _, wrapper in self._iter_vl_expert_wrappers():
             wrapper.visual_token_mask = visual_token_mask
 
+    @contextmanager
+    def _generation_visual_token_mask(self, visual_token_mask: Optional[torch.Tensor]):
+        """Apply origin masks to prefill, and never to tokens decoded from cache.
+
+        Sequence length alone cannot distinguish a one-token visual prompt
+        from a one-token decoding step. Inspect the cache before each forward.
+        No training hooks are used: checkpoint recomputation retains its mask.
+        """
+        self._set_vl_expert_visual_token_mask(visual_token_mask)
+
+        def update_mask(_module, _args, kwargs):
+            cache = kwargs.get("past_key_values")
+            if cache is not None and hasattr(cache, "get_seq_length"):
+                has_past = cache.get_seq_length() > 0
+            else:
+                has_past = bool(cache) if cache is not None else False
+            self._set_vl_expert_visual_token_mask(None if has_past else visual_token_mask)
+
+        handle = self.llm.register_forward_pre_hook(update_mask, with_kwargs=True)
+        try:
+            yield
+        finally:
+            handle.remove()
+            self._set_vl_expert_visual_token_mask(None)
+
     def _set_vl_experts_trainable(self, trainable: bool) -> None:
         if not self.enable_vl_experts:
             return
 
         for _, wrapper in self._iter_vl_expert_wrappers():
             wrapper.visual_expert.requires_grad_(trainable)
+            if wrapper.text_visual_gate is not None:
+                wrapper.text_visual_gate.requires_grad_(trainable)
+
+    def _text_visual_gate_regularization_loss(self) -> torch.Tensor:
+        losses = []
+        total_gates = 0
+        for _, wrapper in self._iter_vl_expert_wrappers():
+            gate = wrapper.text_visual_gate
+            if gate is not None:
+                count = sum(parameter.numel() for parameter in gate.parameters())
+                losses.append(gate.regularization_loss() * count)
+                total_gates += count
+        if not losses:
+            return torch.zeros((), device=self.model_device)
+        return torch.stack(losses).sum() / total_gates
 
     def set_llm_lora_trainable(self, trainable: bool) -> None:
         self.train_llm_lora = bool(trainable)
@@ -3090,8 +3267,11 @@ class GigaChatVL(nn.Module):
 
         state_dict: Dict[str, torch.Tensor] = {}
         for layer_idx, wrapper in self._iter_vl_expert_wrappers():
-            for key, value in wrapper.visual_expert.state_dict().items():
-                state_dict[f"layers.{layer_idx}.visual_expert.{key}"] = value.detach().cpu()
+            for name in ("visual_expert", "text_visual_gate"):
+                module = getattr(wrapper, name)
+                if module is not None:
+                    for key, value in module.state_dict().items():
+                        state_dict[f"layers.{layer_idx}.{name}.{key}"] = value.detach().cpu()
         return state_dict
 
     def save_vl_experts(self, path: str) -> None:
@@ -3100,7 +3280,9 @@ class GigaChatVL(nn.Module):
 
         torch.save(
             {
+                "format_version": 2,
                 "layers": self.vl_expert_layer_indices,
+                "text_visual_gates": self.text_visual_gates,
                 "state_dict": self.vl_experts_state_dict(),
             },
             path,
@@ -3114,9 +3296,19 @@ class GigaChatVL(nn.Module):
         if isinstance(payload, dict) and "state_dict" in payload:
             state_dict = payload["state_dict"]
             payload_layers = payload.get("layers")
+            if payload.get("format_version", 1) not in (1, 2):
+                raise ValueError("Unsupported VL expert checkpoint format_version.")
         else:
             state_dict = payload
             payload_layers = None
+
+        has_saved_gates = any(".text_visual_gate." in key for key in state_dict)
+        if has_saved_gates != self.text_visual_gates:
+            raise ValueError(
+                "Visual gate checkpoint mismatch: saved gates="
+                f"{has_saved_gates}, text_visual_gates={self.text_visual_gates}. "
+                "Use the checkpoint's gate configuration; legacy experts contain no gates."
+            )
 
         if payload_layers is not None:
             payload_layers = [int(layer_idx) for layer_idx in payload_layers]
@@ -3127,23 +3319,33 @@ class GigaChatVL(nn.Module):
                     f"current_layers={self.vl_expert_layer_indices}"
                 )
 
+        remaining_keys = set(state_dict)
         for layer_idx, wrapper in self._iter_vl_expert_wrappers():
-            prefix = f"layers.{layer_idx}.visual_expert."
-            layer_state = {
-                key[len(prefix) :]: value
-                for key, value in state_dict.items()
-                if key.startswith(prefix)
-            }
-            if not layer_state:
-                raise KeyError(f"No VL expert weights found for layer {layer_idx}.")
-            wrapper.visual_expert.load_state_dict(layer_state, strict=True)
+            for name in ("visual_expert", "text_visual_gate"):
+                module = getattr(wrapper, name)
+                if module is None:
+                    continue
+                prefix = f"layers.{layer_idx}.{name}."
+                layer_state = {
+                    key[len(prefix) :]: value
+                    for key, value in state_dict.items()
+                    if key.startswith(prefix)
+                }
+                if not layer_state:
+                    raise KeyError(f"No {name} weights found for layer {layer_idx}.")
+                module.load_state_dict(layer_state, strict=True)
+                remaining_keys.difference_update(prefix + key for key in layer_state)
+        if remaining_keys:
+            raise KeyError(f"Unexpected VL expert weights: {sorted(remaining_keys)}")
 
     def build_vlm_meta(self) -> Dict[str, Any]:
         return {
             "image_token": IMAGE_TOKEN,
             "image_token_id": self.image_token_id,
             "llm_name": self.llm_name,
+            "llm_trust_remote_code": self.llm_trust_remote_code,
             "llm_hidden_size": self.llm_hidden_size,
+            "llm_model_type": self.llm.config.model_type,
             "num_lora_layers": self.num_lora_layers,
             "use_llm_lora": self.use_llm_lora,
             "train_llm_lora": self.train_llm_lora,
@@ -3154,6 +3356,9 @@ class GigaChatVL(nn.Module):
             "enable_vl_experts": self.enable_vl_experts,
             "vl_expert_layers": self.vl_expert_layer_indices,
             "vl_expert_layers_config": self.vl_expert_layers,
+            "text_visual_gates": self.text_visual_gates,
+            "text_visual_gate_init": self.text_visual_gate_init,
+            "text_visual_gate_reg_weight": self.text_visual_gate_reg_weight,
             "projector_type": getattr(self, "projector_type", None),
             "projector_num_queries": getattr(self.projector, "num_queries", None),
             "connector_llm_name": getattr(self, "connector_llm_name", None),
@@ -3245,6 +3450,10 @@ class GigaChatVL(nn.Module):
         enable_vl_experts: Optional[bool] = None,
         vl_expert_layers: Optional[List[int]] = None,
         device: Optional[Any] = None,
+        text_visual_gates: Optional[bool] = None,
+        text_visual_gate_init: Optional[float] = None,
+        text_visual_gate_reg_weight: Optional[float] = None,
+        llm_trust_remote_code: Optional[bool] = None,
     ) -> "GigaChatVL":
         checkpoint_path = Path(checkpoint_dir)
         if not checkpoint_path.exists():
@@ -3256,6 +3465,10 @@ class GigaChatVL(nn.Module):
                 "Could not find `vlm_meta.json` next to the checkpoint or in its parent "
                 f"experiment directory: {checkpoint_path}"
             )
+
+        projector_path = _resolve_checkpoint_sidecar_path(checkpoint_path, "projector.pt")
+        if projector_path is None:
+            raise FileNotFoundError(f"Missing projector.pt for training checkpoint: {checkpoint_path}")
 
         tokenizer_dir = _resolve_checkpoint_sidecar_path(checkpoint_path, "tokenizer")
         vision_processor_dir = _resolve_checkpoint_sidecar_path(
@@ -3414,6 +3627,8 @@ class GigaChatVL(nn.Module):
         resolved_enable_vl_experts = enable_vl_experts
         if resolved_enable_vl_experts is None:
             resolved_enable_vl_experts = bool(meta.get("enable_vl_experts", False))
+        if resolved_enable_vl_experts and vl_experts_path is None:
+            raise FileNotFoundError(f"Missing vl_experts.pt for training checkpoint: {checkpoint_path}")
         resolved_vl_expert_layers = vl_expert_layers
         if resolved_vl_expert_layers is None:
             resolved_vl_expert_layers = meta.get("vl_expert_layers_config")
@@ -3506,6 +3721,7 @@ class GigaChatVL(nn.Module):
                 if bool(resolved_use_llm_lora) and llm_lora_path is not None
                 else None
             ),
+            projector_path=str(projector_path),
             projector_type=resolved_projector_type,
             projector_num_queries=int(resolved_projector_num_queries),
             connector_llm_name=resolved_connector_llm_name,
@@ -3523,6 +3739,20 @@ class GigaChatVL(nn.Module):
             ),
             enable_vl_experts=bool(resolved_enable_vl_experts),
             vl_expert_layers=resolved_vl_expert_layers,
+            text_visual_gates=(
+                meta.get("text_visual_gates", False) if text_visual_gates is None else text_visual_gates
+            ),
+            text_visual_gate_init=(
+                meta.get("text_visual_gate_init", 0.9) if text_visual_gate_init is None else text_visual_gate_init
+            ),
+            text_visual_gate_reg_weight=(
+                meta.get("text_visual_gate_reg_weight", 0.0)
+                if text_visual_gate_reg_weight is None else text_visual_gate_reg_weight
+            ),
+            llm_trust_remote_code=(
+                meta.get("llm_trust_remote_code", True)
+                if llm_trust_remote_code is None else llm_trust_remote_code
+            ),
             vl_experts_path=(
                 str(vl_experts_path)
                 if bool(resolved_enable_vl_experts) and vl_experts_path is not None
@@ -4880,6 +5110,7 @@ class GigaChatVL(nn.Module):
             text,
             num_images=num_images,
             chat_template_mode=getattr(self, "chat_template_mode", "tokenizer"),
+            model_type=self.llm.config.model_type,
         )
 
     def build_chat_training_texts(
@@ -4905,6 +5136,7 @@ class GigaChatVL(nn.Module):
             answer=answer,
             num_images=num_images,
             chat_template_mode=getattr(self, "chat_template_mode", "tokenizer"),
+            model_type=self.llm.config.model_type,
         )
 
     def _build_generation_inputs(
@@ -5264,13 +5496,19 @@ class GigaChatVL(nn.Module):
         total_num_images = sum(num_images_per_sample)
         if total_num_images == 0:
             self._set_vl_expert_visual_token_mask(None)
-            return self.llm(
+            outputs = self.llm(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 labels=labels,
                 use_cache=False,
                 num_items_in_batch=num_items_in_batch,
             )
+            # Frozen-backbone alignment can still interleave text-only batches.
+            # They have no trainable path, so make backward a no-op instead of
+            # failing Trainer's accumulation step; no model parameter is linked.
+            if self.training and outputs.loss is not None and not outputs.loss.requires_grad:
+                outputs.loss.requires_grad_(True)
+            return outputs
 
         project_images_during_merge = isinstance(self.projector, LLMProjector)
         if vision_precomputed_features is not None:
@@ -5296,13 +5534,38 @@ class GigaChatVL(nn.Module):
         )
 
         self._set_vl_expert_visual_token_mask(visual_token_mask)
-        return self.llm(
+        outputs = self.llm(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             labels=labels,
             use_cache=False,
             num_items_in_batch=num_items_in_batch,
         )
+        if (
+            self.training and self.text_visual_gates
+            and self.text_visual_gate_reg_weight > 0
+            and outputs.loss is not None and torch.any(visual_token_mask)
+        ):
+            penalty = self._text_visual_gate_regularization_loss()
+            # Match the causal-LM loss denominator across gradient accumulation.
+            # Counting only targets of image-bearing samples also keeps mixed
+            # batches equivalent to separate text/visual microbatches.
+            target_mask = labels[..., 1:].ne(IGNORE_INDEX)
+            visual_targets = (
+                target_mask & visual_token_mask.any(dim=-1, keepdim=True)
+            ).sum()
+            denominator = (
+                target_mask.sum() if num_items_in_batch is None else num_items_in_batch
+            )
+            denominator = torch.as_tensor(
+                denominator, device=outputs.loss.device, dtype=torch.float32,
+            ).clamp_min(1)
+            fraction = visual_targets.to(device=outputs.loss.device, dtype=torch.float32) / denominator
+            outputs.loss = (
+                outputs.loss + self.text_visual_gate_reg_weight
+                * penalty.to(outputs.loss.device) * fraction
+            )
+        return outputs
 
 
 class GigaChatVLForInference(GigaChatVL):
@@ -5345,6 +5608,10 @@ class GigaChatVLForInference(GigaChatVL):
         enable_vl_experts: Optional[bool] = None,
         vl_expert_layers: Optional[List[int]] = None,
         device: Optional[Any] = None,
+        text_visual_gates: Optional[bool] = None,
+        text_visual_gate_init: Optional[float] = None,
+        text_visual_gate_reg_weight: Optional[float] = None,
+        llm_trust_remote_code: Optional[bool] = None,
     ):
         checkpoint_path = Path(checkpoint_dir)
         meta_path = checkpoint_path / "vlm_meta.json"
@@ -5636,6 +5903,20 @@ class GigaChatVLForInference(GigaChatVL):
             ),
             enable_vl_experts=bool(resolved_enable_vl_experts),
             vl_expert_layers=resolved_vl_expert_layers,
+            text_visual_gates=(
+                meta.get("text_visual_gates", False) if text_visual_gates is None else text_visual_gates
+            ),
+            text_visual_gate_init=(
+                meta.get("text_visual_gate_init", 0.9) if text_visual_gate_init is None else text_visual_gate_init
+            ),
+            text_visual_gate_reg_weight=(
+                meta.get("text_visual_gate_reg_weight", 0.0)
+                if text_visual_gate_reg_weight is None else text_visual_gate_reg_weight
+            ),
+            llm_trust_remote_code=(
+                meta.get("llm_trust_remote_code", True)
+                if llm_trust_remote_code is None else llm_trust_remote_code
+            ),
             vl_experts_path=(
                 str(vl_experts_path) if bool(resolved_enable_vl_experts) else None
             ),
@@ -5695,8 +5976,7 @@ class GigaChatVLForInference(GigaChatVL):
             generation_kwargs["temperature"] = temperature
             generation_kwargs["top_p"] = top_p
 
-        self._set_vl_expert_visual_token_mask(prepared.get("visual_token_mask"))
-        try:
+        with self._generation_visual_token_mask(prepared.get("visual_token_mask")):
             if "inputs_embeds" in prepared:
                 outputs = self.llm.generate(
                     input_ids=prepared["input_ids"].to(device),
@@ -5708,9 +5988,6 @@ class GigaChatVLForInference(GigaChatVL):
                     input_ids=prepared["input_ids"].to(device),
                     **generation_kwargs,
                 )
-        finally:
-            self._set_vl_expert_visual_token_mask(None)
-
         prompt_length = int(prepared["prompt_length"])
         generated_ids = outputs[0, prompt_length:] if outputs.size(1) > prompt_length else outputs[0]
         return self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()

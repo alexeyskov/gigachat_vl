@@ -1,6 +1,234 @@
 # gigachat_vl
 GigaChat VL
 
+## Additional text MoE experiments
+
+The CUDA training entrypoint also supports these official text backbones:
+
+| `--backbone` | Default checkpoint | Python class |
+| --- | --- | --- |
+| `gpt_oss` | `openai/gpt-oss-20b` | `GptOssVL` |
+| `smallthinker` | `Tiiny/SmallThinker-4BA0.6B-Instruct` | `SmallThinkerVL` |
+| `lfm2_moe` | `LiquidAI/LFM2.5-8B-A1B` | `LFM2MoEVL` |
+
+Install into your CUDA environment (install the appropriate CUDA PyTorch build
+first), then run one experiment:
+
+```bash
+pip install -r requirements-moe.txt
+python train.py --backbone gpt_oss --vision_path Qwen/Qwen2.5-VL-7B-Instruct
+python train.py --backbone smallthinker --vision_path Qwen/Qwen2.5-VL-7B-Instruct
+python train.py --backbone lfm2_moe --vision_path Qwen/Qwen2.5-VL-7B-Instruct
+```
+
+`--llm_path` accepts a local checkpoint or overrides the default Hugging Face ID.
+`--output_dir` overrides `runs/<backbone>_vl_alignment`. For a short GPU smoke run,
+append `--max_steps 2`. Dataset roots and mixtures are still configured in
+`train.py`; prepare those datasets on the VPS before starting. Running without
+`--backbone` preserves the DeepSeek experiment.
+
+These experiments freeze the language backbone and donor vision encoder and
+train a new MLP projector plus added visual experts. Their default path uses
+native bf16 on CUDA; `--train_llm` additionally trains all language weights.
+DeepSeek's learned input gates are not enabled for these backbones.
+
+Model-specific details:
+
+- **GPT-OSS:** uses the official `openai/gpt-oss-20b` checkpoint. Its MXFP4 expert
+  weights are dequantized for a differentiable training path. Budget roughly
+  **42 GB for bf16 language weights alone**, plus vision, activations, and
+  optimizer state. This is not the checkpoint's compact MXFP4 inference path.
+  The official Harmony template is used with a `final` channel prefix for direct
+  visual answers. Router scores returned by the FFN are preserved.
+- **SmallThinker:** the project supplies a checkpoint-compatible implementation
+  on the same Transformers version as the other models. It preserves ReGLU
+  experts and the router's pre-attention input, and adds causal training loss,
+  gradient checkpointing, and native cached generation. It supports the
+  published 4B checkpoint's all-RoPE, full-attention layout. Loading does not
+  require the older remote implementation or `trust_remote_code=True`.
+- **LFM2.5:** uses native `Lfm2MoeForCausalLM`, including convolution state in the
+  generation cache. Visual experts wrap `feed_forward` blocks in both dense and
+  MoE layers. The official chat template is preserved; the post-trained base
+  model has reasoning behavior, while visual SFT examples supervise the provided
+  answers.
+
+GPT-OSS and LFM2-MoE reject the generic LLM LoRA/4-bit flags because their packed
+expert parameters are not ordinary linear layers. SmallThinker can use the
+existing linear LoRA path. All three reuse the current vision backends,
+precomputed features, datasets, and artifact format.
+
+Python usage and checkpoint loading:
+
+```python
+from src.model.text_moe_vl import GptOssVL, SmallThinkerVL, LFM2MoEVL
+from src.model.gigachat_vl import GigaChatVLForInference
+from src.utils.train_utils import save_artifacts
+
+model = SmallThinkerVL(vision_name="Qwen/Qwen2.5-VL-7B-Instruct")
+save_artifacts(model, "runs/smallthinker_vl_alignment")
+
+model = GigaChatVLForInference(
+    checkpoint_dir="runs/smallthinker_vl_alignment",
+    use_4bit_llm=False,
+    device="cuda",
+)
+# Training can resume from saved model artifacts using:
+# model = SmallThinkerVL.from_training_checkpoint("runs/smallthinker_vl_alignment")
+```
+
+The existing API server restores the model type and chat behavior from the saved
+language config. For example:
+
+```bash
+python -m src.api.server --checkpoint_dir runs/smallthinker_vl_alignment
+```
+
+Local validation uses small randomly initialized CPU models; full checkpoint
+loading, CUDA kernels, and end-to-end GPU training must be validated on the VPS.
+
+## DeepSeek-V2-Lite with learned visual access
+
+`train.py` now starts a DeepSeek-V2-Lite-Chat experiment using the existing
+vision encoder, projector, datasets, and checkpoint format. Install the native
+DeepSeek dependencies with:
+
+```bash
+pip install -r requirements-deepseek.txt
+```
+
+This path pins Transformers 5.15.0 and loads the native DeepSeek-V2 classes with
+`llm_trust_remote_code=False`. It does not use the older model repository's
+remote Python implementation. The default is
+[`deepseek-ai/DeepSeek-V2-Lite-Chat`](https://huggingface.co/deepseek-ai/DeepSeek-V2-Lite-Chat),
+which has 16B total parameters and about 2.4B active parameters per token.
+The [model configuration](https://huggingface.co/deepseek-ai/DeepSeek-V2-Lite-Chat/blob/main/config.json)
+has 27 decoder layers: one dense layer followed by MoE layers with 64 routed
+experts, top-6 routing, and two shared experts. Active parameters describe
+computation; all expert weights still need storage. Bf16 language weights alone
+require roughly 32 GB, before the vision tower, activations, gradients, and
+optimizer state.
+
+```python
+from src.model.deepseek_vl import DeepSeekVL
+
+model = DeepSeekVL(
+    vision_name=VISION_PATH,
+    projector_path=None,
+    projector_type="mlp",
+    freeze_vision=True,
+    use_4bit_llm=False,
+    use_llm_lora=False,
+    train_llm_lora=False,
+    text_visual_gates=True,
+    text_visual_gate_init=0.9,
+    text_visual_gate_reg_weight=1e-3,
+)
+```
+
+The original language experts already receive visual-token hidden states in
+the previous implementation. Learned gates now control that direct access.
+Each routed expert and each shared expert has its own scalar gate in every
+selected layer; the first dense FFN has its own gate. For an expert `e`, token
+`t`, image-origin indicator `m[t]`, and current hidden state `h[t]`, its input is:
+
+```text
+expert_input[e, t] = h[t] * (1 - m[t] + m[t] * z[e])
+```
+
+The router still chooses experts from the original hidden states. At image
+positions, an open gate passes the current, contextualized visual hidden state;
+a closed gate blocks it. Text-position inputs pass unchanged. The added visual
+expert continues to receive unmasked hidden states at image-origin positions.
+There is no second copy of the image embeddings: image tokens are inserted
+once and their evolving hidden states are gated in each layer. During cached
+decoding, new text tokens use the normal language path; visual context remains
+available through attention to the cache.
+
+Gates use hard-concrete samples during training and deterministic clipped
+values during inference, following the
+[hard-concrete L0 formulation](https://arxiv.org/abs/1712.01312).
+`text_visual_gate_init=0.9` specifies the initial
+deterministic gate value, not the probability of sampling a nonzero gate.
+The regularizer adds `text_visual_gate_reg_weight` times the expected fraction
+of open gates to the language-model loss. This lets task supervision justify
+visual access while the regularizer encourages unnecessary access to close.
+The coefficient is an experimental starting point; specialization is learned,
+not guaranteed.
+The penalty is averaged over all expert gates and weighted by supervised
+targets from image-bearing samples, using the same token denominator as the
+causal loss across gradient accumulation. Text-only samples contribute no gate
+penalty. Closing a gate does not change top-k selection or skip the expert's
+matrix multiplications in this implementation.
+
+A closed gate means an expert does not directly process image-origin token
+states. It does **not** guarantee that the expert is independent of the image:
+shared self-attention can already carry visual information into text-position
+states. Strict isolation would require separate attention streams or explicit
+control of visual contributions before attention mixing.
+
+The initial configuration in `train.py` freezes the language backbone and vision
+tower and trains the new projector, visual experts, and gates. A GigaChat
+projector is not reused: alignment must be learned for DeepSeek. The
+`DeepSeekVLTrainer` uses `gate_learning_rate=1e-3`, separate from the remaining
+parameters' learning rate, with no gate weight decay. Its logs include each
+layer's deterministic gate mean, fraction of nonzero gates, and gate LR.
+The normal warmup/cosine scheduler applies to both optimizer groups.
+
+After alignment, continue from the saved model for a stage that also adapts the
+language experts:
+
+```python
+model = DeepSeekVL.from_training_checkpoint(
+    checkpoint_dir="runs/deepseek_v2_lite_vl_gated_alignment",
+    use_4bit_llm=False,
+    use_llm_lora=False,
+    train_llm_lora=True,
+)
+```
+
+Here `train_llm_lora=True` enables full language-model training because
+`use_llm_lora=False`; the argument retains its historical name. Use this model
+with `DeepSeekVLTrainer` and a new output directory. Full training needs
+substantially more memory than frozen-backbone alignment. Keep text-only
+examples in the training mixture and evaluate both text and visual tasks when
+choosing the gate regularization strength.
+The pinned native backend does not add the original remote implementation's
+router balancing auxiliary loss. The router is frozen in the initial stage;
+full-backbone experiments must account for this difference when evaluating
+expert utilization.
+
+Gated DeepSeek currently rejects LLM LoRA and 4-bit loading. Native routed
+expert weights are packed three-dimensional parameters, so the repository's
+linear-layer LoRA/QLoRA path cannot be assumed to cover them. Existing GigaChat
+and SmolLM configurations remain available through their original classes.
+
+Inference restores gate settings and weights from the saved artifacts:
+
+```python
+from src.model.deepseek_vl import DeepSeekVLForInference
+
+model = DeepSeekVLForInference(
+    checkpoint_dir="runs/deepseek_v2_lite_vl_gated_alignment",
+    device="cuda",
+)
+```
+
+The API server also reads model paths and gate settings from checkpoint
+metadata and defaults to unquantized loading:
+
+```bash
+python -m src.api.server --checkpoint_dir runs/deepseek_v2_lite_vl_gated_alignment
+```
+
+`--llm_path` and `--vision_path` are optional overrides. `--use_4bit_llm` is
+available for compatible legacy checkpoints; `quant_model.py` rejects gated
+DeepSeek checkpoints before attempting conversion.
+
+The native API was checked with a small randomly initialized DeepSeek-V2 model
+on CPU, including visual-style `inputs_embeds`, loss/backward, and cached
+generation. This is not validation of a complete 16B checkpoint or an end-to-end
+GPU training run.
+
 ## LLM connector projector
 
 In addition to `projector_type="mlp"` and `projector_type="qformer"`, the model

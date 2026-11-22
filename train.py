@@ -1,4 +1,4 @@
-import json
+import argparse
 import os
 import sys
 
@@ -6,13 +6,13 @@ import torch
 from transformers import Trainer, TrainingArguments, set_seed
 
 from src.dataset import SupportedDatasets, VLMDataCollator, load_merged_dataset
-from src.model.gigachat_vl import GigaChatVL
+from src.model.deepseek_vl import DEFAULT_DEEPSEEK_NAME, DeepSeekVL, DeepSeekVLTrainer
+from src.model.text_moe_backbones import TEXT_MOE_NAMES
+from src.model.text_moe_vl import GptOssVL, LFM2MoEVL, SmallThinkerVL
 from src.utils.train_utils import SaveVLMArtifactsCallback, save_artifacts
 
 
-NEED_PATH_GIGACHAT = False
-
-EXP_NAME = "gigachat_vl_qwen25_full_bf16_vl_experts"
+EXP_NAME = "deepseek_v2_lite_vl_gated_alignment"
 PROJECT_ROOT = "./"
 OUTPUT_DIR = os.path.join("runs", EXP_NAME)
 
@@ -20,11 +20,28 @@ for p in [PROJECT_ROOT]:
     if p not in sys.path:
         sys.path.append(p)
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-LLM_PATH = "./models/GigaChat3.1-10B-A1.8B-bf16"
+LLM_PATH = DEFAULT_DEEPSEEK_NAME
 VISION_PATH = "./models/Qwen2.5-VL-7B-Instruct/"
-PROJECTOR_PATH = "./models/projector.pt"
+# A projector trained for GigaChat must be realigned to the DeepSeek backbone.
+PROJECTOR_PATH = None
+
+BACKBONE_CLASSES = {
+    "deepseek": DeepSeekVL,
+    "gpt_oss": GptOssVL,
+    "smallthinker": SmallThinkerVL,
+    "lfm2_moe": LFM2MoEVL,
+}
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Multimodal alignment of text MoE backbones.")
+    parser.add_argument("--backbone", choices=BACKBONE_CLASSES, default="deepseek")
+    parser.add_argument("--llm_path", default=None, help="Optional local checkpoint or Hugging Face ID.")
+    parser.add_argument("--vision_path", default=VISION_PATH)
+    parser.add_argument("--output_dir", default=None)
+    parser.add_argument("--max_steps", type=int, default=25_000)
+    parser.add_argument("--train_llm", action="store_true", help="Also train all language weights.")
+    return parser.parse_args(argv)
 
 dataset_specs_full = [
     {
@@ -98,35 +115,22 @@ dataset_specs_connector = [
 
 
 if __name__ == "__main__":
+    cli_args = parse_args()
+    model_class = BACKBONE_CLASSES[cli_args.backbone]
+    LLM_PATH = cli_args.llm_path or (
+        DEFAULT_DEEPSEEK_NAME if cli_args.backbone == "deepseek" else TEXT_MOE_NAMES[cli_args.backbone]
+    )
+    VISION_PATH = cli_args.vision_path
+    EXP_NAME = (
+        EXP_NAME if cli_args.backbone == "deepseek" else f"{cli_args.backbone}_vl_alignment"
+    )
+    OUTPUT_DIR = cli_args.output_dir or os.path.join("runs", EXP_NAME)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     dataset_specs = dataset_specs_full
 
-    if NEED_PATH_GIGACHAT:
-        config_path = os.path.join(LLM_PATH, "config.json")
-
-        with open(config_path, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-
-        print(
-            "Before:",
-            cfg.get("routed_scaling_factor"),
-            type(cfg.get("routed_scaling_factor")),
-        )
-
-        if "routed_scaling_factor" in cfg and isinstance(cfg["routed_scaling_factor"], int):
-            cfg["routed_scaling_factor"] = float(cfg["routed_scaling_factor"])
-
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
-
-        print(
-            "After:",
-            cfg.get("routed_scaling_factor"),
-            type(cfg.get("routed_scaling_factor")),
-        )
-        print("Patched:", config_path)
-
-    MAX_STEPS = 25_000
+    MAX_STEPS = cli_args.max_steps
     LR = 1e-5
+    GATE_LR = 1e-3
     WEIGHT_DECAY = 0.0
     WARMUP_RATIO = 0.03
     warmup_steps = int(MAX_STEPS * WARMUP_RATIO)
@@ -143,7 +147,8 @@ if __name__ == "__main__":
 
     USE_4BIT_LLM = False
     USE_LLM_LORA = False
-    TRAIN_LLM = True
+    # Start with frozen language weights; gates, visual experts and projector train.
+    TRAIN_LLM = cli_args.train_llm
     FREEZE_VISION = True
     TRAIN_PROJECTOR = True
     USE_PRECOMPUTED_VISION_EMBEDDINGS = False
@@ -152,6 +157,9 @@ if __name__ == "__main__":
 
     ENABLE_VL_EXPERTS = True
     VL_EXPERT_LAYERS = None
+    TEXT_VISUAL_GATES = cli_args.backbone == "deepseek"
+    TEXT_VISUAL_GATE_INIT = 0.9
+    TEXT_VISUAL_GATE_REG_WEIGHT = 1e-3 if TEXT_VISUAL_GATES else 0.0
 
     set_seed(SEED)
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -185,15 +193,15 @@ if __name__ == "__main__":
     if not use_bf16:
         raise RuntimeError(
             "This script is configured for bf16 CUDA training. "
-            "Run it on the RTX 6000 Pro server."
+            "Run it on a CUDA device with sufficient memory for the selected stage."
         )
 
-    model = GigaChatVL(
+    model = model_class(
         llm_name=LLM_PATH,
         vision_name=VISION_PATH,
         use_4bit_llm=USE_4BIT_LLM,
         freeze_vision=FREEZE_VISION,
-        chat_template_mode="short",
+        chat_template_mode="tokenizer",
         max_image_side=1520,
         projector_type="mlp",
         projector_path=PROJECTOR_PATH,
@@ -203,6 +211,9 @@ if __name__ == "__main__":
         normalize_visual_embeddings=True,
         enable_vl_experts=ENABLE_VL_EXPERTS,
         vl_expert_layers=VL_EXPERT_LAYERS,
+        text_visual_gates=TEXT_VISUAL_GATES,
+        text_visual_gate_init=TEXT_VISUAL_GATE_INIT,
+        text_visual_gate_reg_weight=TEXT_VISUAL_GATE_REG_WEIGHT,
     )
 
     if not TRAIN_PROJECTOR:
@@ -223,9 +234,10 @@ if __name__ == "__main__":
         f"({100 * trainable_params / all_params:.4f}%)"
     )
     print(
-        "Training mode: full bf16 LLM, "
+        f"Training mode: native bf16 {cli_args.backbone}, train_llm={TRAIN_LLM}, "
         f"freeze_vision={FREEZE_VISION}, train_projector={TRAIN_PROJECTOR}, "
-        f"enable_vl_experts={ENABLE_VL_EXPERTS}, vl_expert_layers={model.vl_expert_layer_indices}"
+        f"enable_vl_experts={ENABLE_VL_EXPERTS}, vl_expert_layers={model.vl_expert_layer_indices}, "
+        f"text_visual_gates={TEXT_VISUAL_GATES}, gate_lr={GATE_LR}"
     )
 
     train_dataset = load_merged_dataset(
@@ -246,7 +258,7 @@ if __name__ == "__main__":
     )
 
     training_args = TrainingArguments(
-        optim="paged_adamw_8bit",
+        optim="adamw_torch",
         output_dir=OUTPUT_DIR,
         max_steps=MAX_STEPS,
         learning_rate=LR,
@@ -269,12 +281,15 @@ if __name__ == "__main__":
         dataloader_pin_memory=True,
     )
 
-    trainer = Trainer(
+    trainer_class = DeepSeekVLTrainer if TEXT_VISUAL_GATES else Trainer
+    trainer_kwargs = {"gate_learning_rate": GATE_LR} if TEXT_VISUAL_GATES else {}
+    trainer = trainer_class(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         data_collator=collator,
         callbacks=[SaveVLMArtifactsCallback()],
+        **trainer_kwargs,
     )
 
     trainer.train()

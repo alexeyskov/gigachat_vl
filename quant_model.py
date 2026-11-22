@@ -125,6 +125,12 @@ def check_input_checkpoint(checkpoint_dir: Path) -> Dict[str, Any]:
 
     meta_path = checkpoint_dir / "vlm_meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.get("text_visual_gates", False):
+        raise ValueError(
+            "4-bit conversion is unsupported for checkpoints with text_visual_gates=True. "
+            "The gated DeepSeek path uses native packed expert weights; keep this "
+            "checkpoint unquantized."
+        )
     if meta.get("use_llm_lora", False):
         raise ValueError(
             "This converter is intended for full-LLM checkpoints with use_llm_lora=False. "

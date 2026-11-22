@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Native packed DeepSeek-V2 expert layout used by the visual-access gates.
+transformers==5.15.0
+peft==0.21.2
