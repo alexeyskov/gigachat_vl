@@ -1,0 +1,756 @@
+{
+  "all18_final_model_tensor_bytes": 209052562768,
+  "all18_retained_model_payload_upper_bound_bytes": 211468481872,
+  "candidate_cache_recomputable_bytes": 30270222336,
+  "conditions": [
+    "Prospective R2 policy must first be implemented/source-bound/tested and enabled explicitly. No disk floor changes here.",
+    "All intermediateA0/A1 and QLoRA-resume optimizer storages use all-initialized Adam32 upper bounds,128MiB metadata/object and manager5percent-or16MiB margin.",
+    "All completed current-series intermediate stages are rebased and recounted; only the exact approved DAG successful-dependent cleanup is assumed. Old unique scientific weights receive zero retirement credit.",
+    "Entire future maximum Qwen/Siglip feature growth is charged upfront for every phase, even when it actually occurs later.",
+    "Native cache file metadata allowance8192B follows frozen cache writer reservation; allocation is rounded to4096B and directory+atomic-temp costs are added.",
+    "Other2GiB is an explicit planning allowance, not a proven bound for unrelated future downloads/work. No unrelated growth/provisioning may be silently admitted.",
+    "Cache candidate credit is hypothetical until ROOT verifies scanner/closure and executes exact retirement. All images/models/checkpoints/proofs remain.",
+    "Theoretical sample compression receives no capacity credit."
+  ],
+  "created_unix": 1795373266.9374425,
+  "feature_growth_upper_bound": {
+    "Qwen729_all_cold_files": 7616,
+    "Qwen_per_file_native_cache_metadata_allowance_bytes": 8192,
+    "Qwen_per_file_raw_storage_bytes": 5225472,
+    "Qwen_total_logical_upper_bound_bytes": 39859585024,
+    "actual_Qwen_token_counts_not_assumed_equal729": true,
+    "all18_blank_PNG_allocated_bound_from_same_native245assets_bytes": 26689536,
+    "all_missing_feature_allocated_upper_bound_bytes": 40399134720,
+    "cache_parent_directory_allowance_bytes": 2105344,
+    "existing_protected_Siglip_files": 7306,
+    "filesystem_block_bytes": 4096,
+    "missing_Siglip_files": 310,
+    "one_atomic_feature_temp_allowance_bytes": 5234688,
+    "other_logs_predictions_provenance_growth_allowance_bytes": 2147483648,
+    "protected_RGB_including_fixed_blank": 7616,
+    "source_or_tensor_bodies_read": false
+  },
+  "models": [
+    {
+      "encoder": "siglip2",
+      "model": "smallthinker4",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 1421148416,
+      "recipe": "1b",
+      "retained_final_upper_bound_bytes": 1555366144
+    },
+    {
+      "encoder": "siglip2",
+      "model": "smallthinker4",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 16156870656,
+      "recipe": "4f",
+      "retained_final_upper_bound_bytes": 16291088384
+    },
+    {
+      "encoder": "siglip2",
+      "model": "smallthinker4",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 1421157120,
+      "recipe": "1c",
+      "retained_final_upper_bound_bytes": 1555374848
+    },
+    {
+      "encoder": "qwen25vision",
+      "model": "smallthinker4",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 1436090624,
+      "recipe": "1b",
+      "retained_final_upper_bound_bytes": 1570308352
+    },
+    {
+      "encoder": "qwen25vision",
+      "model": "smallthinker4",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 16171812864,
+      "recipe": "4f",
+      "retained_final_upper_bound_bytes": 16306030592
+    },
+    {
+      "encoder": "qwen25vision",
+      "model": "smallthinker4",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 1436099328,
+      "recipe": "1c",
+      "retained_final_upper_bound_bytes": 1570317056
+    },
+    {
+      "encoder": "siglip2",
+      "model": "lfm25",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 2437042096,
+      "recipe": "1b",
+      "retained_final_upper_bound_bytes": 2571259824
+    },
+    {
+      "encoder": "siglip2",
+      "model": "lfm25",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 33897655296,
+      "recipe": "4f",
+      "retained_final_upper_bound_bytes": 34031873024
+    },
+    {
+      "encoder": "siglip2",
+      "model": "lfm25",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 2437048080,
+      "recipe": "1c",
+      "retained_final_upper_bound_bytes": 2571265808
+    },
+    {
+      "encoder": "qwen25vision",
+      "model": "lfm25",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 2456965040,
+      "recipe": "1b",
+      "retained_final_upper_bound_bytes": 2591182768
+    },
+    {
+      "encoder": "qwen25vision",
+      "model": "lfm25",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 33917578240,
+      "recipe": "4f",
+      "retained_final_upper_bound_bytes": 34051795968
+    },
+    {
+      "encoder": "qwen25vision",
+      "model": "lfm25",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 2456971024,
+      "recipe": "1c",
+      "retained_final_upper_bound_bytes": 2591188752
+    },
+    {
+      "encoder": "siglip2",
+      "model": "giga31",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 1986985928,
+      "recipe": "1b",
+      "retained_final_upper_bound_bytes": 2121203656
+    },
+    {
+      "encoder": "siglip2",
+      "model": "giga31",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 42706663424,
+      "recipe": "4f",
+      "retained_final_upper_bound_bytes": 42840881152
+    },
+    {
+      "encoder": "siglip2",
+      "model": "giga31",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 1986999328,
+      "recipe": "1c",
+      "retained_final_upper_bound_bytes": 2121217056
+    },
+    {
+      "encoder": "qwen25vision",
+      "model": "giga31",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 2001928136,
+      "recipe": "1b",
+      "retained_final_upper_bound_bytes": 2136145864
+    },
+    {
+      "encoder": "qwen25vision",
+      "model": "giga31",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 42721605632,
+      "recipe": "4f",
+      "retained_final_upper_bound_bytes": 42855823360
+    },
+    {
+      "encoder": "qwen25vision",
+      "model": "giga31",
+      "model_payload_upper_metadata_allowance_bytes": 134217728,
+      "raw_model_tensor_bytes": 2001941536,
+      "recipe": "1c",
+      "retained_final_upper_bound_bytes": 2136159264
+    }
+  ],
+  "owner": "budget18_prospective_modelonly_reserve_scenarios_v3",
+  "phases": [
+    {
+      "anticipated_new_write_bytes": 183799808,
+      "future_retained_model_bound_bytes": 0,
+      "held_intermediate_or_resume_bytes": 0,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "smallthinker4/siglip2/NF4_A0_final",
+      "total_new_series_phase_bound_bytes": 200577024
+    },
+    {
+      "anticipated_new_write_bytes": 183799808,
+      "future_retained_model_bound_bytes": 0,
+      "held_intermediate_or_resume_bytes": 183799808,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "smallthinker4/siglip2/BF16_A0_final",
+      "total_new_series_phase_bound_bytes": 384376832
+    },
+    {
+      "anticipated_new_write_bytes": 2945884928,
+      "future_retained_model_bound_bytes": 0,
+      "held_intermediate_or_resume_bytes": 367599616,
+      "manager_extra_margin_bytes": 147294247,
+      "phase": "smallthinker4/siglip2/1b/A1_final",
+      "total_new_series_phase_bound_bytes": 3460778791
+    },
+    {
+      "anticipated_new_write_bytes": 4364608256,
+      "future_retained_model_bound_bytes": 0,
+      "held_intermediate_or_resume_bytes": 3313484544,
+      "manager_extra_margin_bytes": 218230413,
+      "phase": "smallthinker4/siglip2/1b/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 7896323213
+    },
+    {
+      "anticipated_new_write_bytes": 1555366144,
+      "future_retained_model_bound_bytes": 0,
+      "held_intermediate_or_resume_bytes": 7678092800,
+      "manager_extra_margin_bytes": 77768308,
+      "phase": "smallthinker4/siglip2/1b/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 9311227252
+    },
+    {
+      "anticipated_new_write_bytes": 16291088384,
+      "future_retained_model_bound_bytes": 1555366144,
+      "held_intermediate_or_resume_bytes": 3313484544,
+      "manager_extra_margin_bytes": 814554420,
+      "phase": "smallthinker4/siglip2/4f/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 21974493492
+    },
+    {
+      "anticipated_new_write_bytes": 2945911040,
+      "future_retained_model_bound_bytes": 17846454528,
+      "held_intermediate_or_resume_bytes": 3313484544,
+      "manager_extra_margin_bytes": 147295552,
+      "phase": "smallthinker4/siglip2/1c/A1_final",
+      "total_new_series_phase_bound_bytes": 24253145664
+    },
+    {
+      "anticipated_new_write_bytes": 4364634368,
+      "future_retained_model_bound_bytes": 17846454528,
+      "held_intermediate_or_resume_bytes": 3313510656,
+      "manager_extra_margin_bytes": 218231719,
+      "phase": "smallthinker4/siglip2/1c/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 25742831271
+    },
+    {
+      "anticipated_new_write_bytes": 1555374848,
+      "future_retained_model_bound_bytes": 17846454528,
+      "held_intermediate_or_resume_bytes": 7678145024,
+      "manager_extra_margin_bytes": 77768743,
+      "phase": "smallthinker4/siglip2/1c/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 27157743143
+    },
+    {
+      "anticipated_new_write_bytes": 228626432,
+      "future_retained_model_bound_bytes": 19401829376,
+      "held_intermediate_or_resume_bytes": 0,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "smallthinker4/qwen25vision/NF4_A0_final",
+      "total_new_series_phase_bound_bytes": 19647233024
+    },
+    {
+      "anticipated_new_write_bytes": 228626432,
+      "future_retained_model_bound_bytes": 19401829376,
+      "held_intermediate_or_resume_bytes": 228626432,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "smallthinker4/qwen25vision/BF16_A0_final",
+      "total_new_series_phase_bound_bytes": 19875859456
+    },
+    {
+      "anticipated_new_write_bytes": 2960827136,
+      "future_retained_model_bound_bytes": 19401829376,
+      "held_intermediate_or_resume_bytes": 457252864,
+      "manager_extra_margin_bytes": 148041357,
+      "phase": "smallthinker4/qwen25vision/1b/A1_final",
+      "total_new_series_phase_bound_bytes": 22967950733
+    },
+    {
+      "anticipated_new_write_bytes": 4379550464,
+      "future_retained_model_bound_bytes": 19401829376,
+      "held_intermediate_or_resume_bytes": 3418080000,
+      "manager_extra_margin_bytes": 218977524,
+      "phase": "smallthinker4/qwen25vision/1b/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 27418437364
+    },
+    {
+      "anticipated_new_write_bytes": 1570308352,
+      "future_retained_model_bound_bytes": 19401829376,
+      "held_intermediate_or_resume_bytes": 7797630464,
+      "manager_extra_margin_bytes": 78515418,
+      "phase": "smallthinker4/qwen25vision/1b/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 28848283610
+    },
+    {
+      "anticipated_new_write_bytes": 16306030592,
+      "future_retained_model_bound_bytes": 20972137728,
+      "held_intermediate_or_resume_bytes": 3418080000,
+      "manager_extra_margin_bytes": 815301530,
+      "phase": "smallthinker4/qwen25vision/4f/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 41511549850
+    },
+    {
+      "anticipated_new_write_bytes": 2960853248,
+      "future_retained_model_bound_bytes": 37278168320,
+      "held_intermediate_or_resume_bytes": 3418080000,
+      "manager_extra_margin_bytes": 148042663,
+      "phase": "smallthinker4/qwen25vision/1c/A1_final",
+      "total_new_series_phase_bound_bytes": 43805144231
+    },
+    {
+      "anticipated_new_write_bytes": 4379576576,
+      "future_retained_model_bound_bytes": 37278168320,
+      "held_intermediate_or_resume_bytes": 3418106112,
+      "manager_extra_margin_bytes": 218978829,
+      "phase": "smallthinker4/qwen25vision/1c/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 45294829837
+    },
+    {
+      "anticipated_new_write_bytes": 1570317056,
+      "future_retained_model_bound_bytes": 37278168320,
+      "held_intermediate_or_resume_bytes": 7797682688,
+      "manager_extra_margin_bytes": 78515853,
+      "phase": "smallthinker4/qwen25vision/1c/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 46724683917
+    },
+    {
+      "anticipated_new_write_bytes": 212910080,
+      "future_retained_model_bound_bytes": 38848485376,
+      "held_intermediate_or_resume_bytes": 0,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "lfm25/siglip2/NF4_A0_final",
+      "total_new_series_phase_bound_bytes": 39078172672
+    },
+    {
+      "anticipated_new_write_bytes": 212910080,
+      "future_retained_model_bound_bytes": 38848485376,
+      "held_intermediate_or_resume_bytes": 212910080,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "lfm25/siglip2/BF16_A0_final",
+      "total_new_series_phase_bound_bytes": 39291082752
+    },
+    {
+      "anticipated_new_write_bytes": 6044151568,
+      "future_retained_model_bound_bytes": 38848485376,
+      "held_intermediate_or_resume_bytes": 425820160,
+      "manager_extra_margin_bytes": 302207579,
+      "phase": "lfm25/siglip2/1b/A1_final",
+      "total_new_series_phase_bound_bytes": 45620664683
+    },
+    {
+      "anticipated_new_write_bytes": 7392882448,
+      "future_retained_model_bound_bytes": 38848485376,
+      "held_intermediate_or_resume_bytes": 6469971728,
+      "manager_extra_margin_bytes": 369644123,
+      "phase": "lfm25/siglip2/1b/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 53080983675
+    },
+    {
+      "anticipated_new_write_bytes": 2571259824,
+      "future_retained_model_bound_bytes": 38848485376,
+      "held_intermediate_or_resume_bytes": 13862854176,
+      "manager_extra_margin_bytes": 128562992,
+      "phase": "lfm25/siglip2/1b/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 55411162368
+    },
+    {
+      "anticipated_new_write_bytes": 34031873024,
+      "future_retained_model_bound_bytes": 41419745200,
+      "held_intermediate_or_resume_bytes": 6469971728,
+      "manager_extra_margin_bytes": 1701593652,
+      "phase": "lfm25/siglip2/4f/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 83623183604
+    },
+    {
+      "anticipated_new_write_bytes": 6044169520,
+      "future_retained_model_bound_bytes": 75451618224,
+      "held_intermediate_or_resume_bytes": 6469971728,
+      "manager_extra_margin_bytes": 302208476,
+      "phase": "lfm25/siglip2/1c/A1_final",
+      "total_new_series_phase_bound_bytes": 88267967948
+    },
+    {
+      "anticipated_new_write_bytes": 7392900400,
+      "future_retained_model_bound_bytes": 75451618224,
+      "held_intermediate_or_resume_bytes": 6469989680,
+      "manager_extra_margin_bytes": 369645020,
+      "phase": "lfm25/siglip2/1c/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 89684153324
+    },
+    {
+      "anticipated_new_write_bytes": 2571265808,
+      "future_retained_model_bound_bytes": 75451618224,
+      "held_intermediate_or_resume_bytes": 13862890080,
+      "manager_extra_margin_bytes": 128563291,
+      "phase": "lfm25/siglip2/1c/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 92014337403
+    },
+    {
+      "anticipated_new_write_bytes": 272678912,
+      "future_retained_model_bound_bytes": 78022884032,
+      "held_intermediate_or_resume_bytes": 0,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "lfm25/qwen25vision/NF4_A0_final",
+      "total_new_series_phase_bound_bytes": 78312340160
+    },
+    {
+      "anticipated_new_write_bytes": 272678912,
+      "future_retained_model_bound_bytes": 78022884032,
+      "held_intermediate_or_resume_bytes": 272678912,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "lfm25/qwen25vision/BF16_A0_final",
+      "total_new_series_phase_bound_bytes": 78585019072
+    },
+    {
+      "anticipated_new_write_bytes": 6064074512,
+      "future_retained_model_bound_bytes": 78022884032,
+      "held_intermediate_or_resume_bytes": 545357824,
+      "manager_extra_margin_bytes": 303203726,
+      "phase": "lfm25/qwen25vision/1b/A1_final",
+      "total_new_series_phase_bound_bytes": 84935520094
+    },
+    {
+      "anticipated_new_write_bytes": 7412805392,
+      "future_retained_model_bound_bytes": 78022884032,
+      "held_intermediate_or_resume_bytes": 6609432336,
+      "manager_extra_margin_bytes": 370640270,
+      "phase": "lfm25/qwen25vision/1b/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 92415762030
+    },
+    {
+      "anticipated_new_write_bytes": 2591182768,
+      "future_retained_model_bound_bytes": 78022884032,
+      "held_intermediate_or_resume_bytes": 14022237728,
+      "manager_extra_margin_bytes": 129559139,
+      "phase": "lfm25/qwen25vision/1b/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 94765863667
+    },
+    {
+      "anticipated_new_write_bytes": 34051795968,
+      "future_retained_model_bound_bytes": 80614066800,
+      "held_intermediate_or_resume_bytes": 6609432336,
+      "manager_extra_margin_bytes": 1702589799,
+      "phase": "lfm25/qwen25vision/4f/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 122977884903
+    },
+    {
+      "anticipated_new_write_bytes": 6064092464,
+      "future_retained_model_bound_bytes": 114665862768,
+      "held_intermediate_or_resume_bytes": 6609432336,
+      "manager_extra_margin_bytes": 303204624,
+      "phase": "lfm25/qwen25vision/1c/A1_final",
+      "total_new_series_phase_bound_bytes": 127642592192
+    },
+    {
+      "anticipated_new_write_bytes": 7412823344,
+      "future_retained_model_bound_bytes": 114665862768,
+      "held_intermediate_or_resume_bytes": 6609450288,
+      "manager_extra_margin_bytes": 370641168,
+      "phase": "lfm25/qwen25vision/1c/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 129058777568
+    },
+    {
+      "anticipated_new_write_bytes": 2591188752,
+      "future_retained_model_bound_bytes": 114665862768,
+      "held_intermediate_or_resume_bytes": 14022273632,
+      "manager_extra_margin_bytes": 129559438,
+      "phase": "lfm25/qwen25vision/1c/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 131408884590
+    },
+    {
+      "anticipated_new_write_bytes": 183799808,
+      "future_retained_model_bound_bytes": 117257051520,
+      "held_intermediate_or_resume_bytes": 0,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "giga31/siglip2/NF4_A0_final",
+      "total_new_series_phase_bound_bytes": 117457628544
+    },
+    {
+      "anticipated_new_write_bytes": 183799808,
+      "future_retained_model_bound_bytes": 117257051520,
+      "held_intermediate_or_resume_bytes": 183799808,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "giga31/siglip2/BF16_A0_final",
+      "total_new_series_phase_bound_bytes": 117641428352
+    },
+    {
+      "anticipated_new_write_bytes": 3751264088,
+      "future_retained_model_bound_bytes": 117257051520,
+      "held_intermediate_or_resume_bytes": 367599616,
+      "manager_extra_margin_bytes": 187563205,
+      "phase": "giga31/siglip2/1b/A1_final",
+      "total_new_series_phase_bound_bytes": 121563478429
+    },
+    {
+      "anticipated_new_write_bytes": 6062120792,
+      "future_retained_model_bound_bytes": 117257051520,
+      "held_intermediate_or_resume_bytes": 4118863704,
+      "manager_extra_margin_bytes": 303106040,
+      "phase": "giga31/siglip2/1b/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 127741142056
+    },
+    {
+      "anticipated_new_write_bytes": 2121203656,
+      "future_retained_model_bound_bytes": 117257051520,
+      "held_intermediate_or_resume_bytes": 10180984496,
+      "manager_extra_margin_bytes": 106060183,
+      "phase": "giga31/siglip2/1b/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 129665299855
+    },
+    {
+      "anticipated_new_write_bytes": 42840881152,
+      "future_retained_model_bound_bytes": 119378255176,
+      "held_intermediate_or_resume_bytes": 4118863704,
+      "manager_extra_margin_bytes": 2142044058,
+      "phase": "giga31/siglip2/4f/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 168480044090
+    },
+    {
+      "anticipated_new_write_bytes": 3751304288,
+      "future_retained_model_bound_bytes": 162219136328,
+      "held_intermediate_or_resume_bytes": 4118863704,
+      "manager_extra_margin_bytes": 187565215,
+      "phase": "giga31/siglip2/1c/A1_final",
+      "total_new_series_phase_bound_bytes": 170276869535
+    },
+    {
+      "anticipated_new_write_bytes": 6062160992,
+      "future_retained_model_bound_bytes": 162219136328,
+      "held_intermediate_or_resume_bytes": 4118903904,
+      "manager_extra_margin_bytes": 303108050,
+      "phase": "giga31/siglip2/1c/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 172703309274
+    },
+    {
+      "anticipated_new_write_bytes": 2121217056,
+      "future_retained_model_bound_bytes": 162219136328,
+      "held_intermediate_or_resume_bytes": 10181064896,
+      "manager_extra_margin_bytes": 106060853,
+      "phase": "giga31/siglip2/1c/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 174627479133
+    },
+    {
+      "anticipated_new_write_bytes": 228626432,
+      "future_retained_model_bound_bytes": 164340353384,
+      "held_intermediate_or_resume_bytes": 0,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "giga31/qwen25vision/NF4_A0_final",
+      "total_new_series_phase_bound_bytes": 164585757032
+    },
+    {
+      "anticipated_new_write_bytes": 228626432,
+      "future_retained_model_bound_bytes": 164340353384,
+      "held_intermediate_or_resume_bytes": 228626432,
+      "manager_extra_margin_bytes": 16777216,
+      "phase": "giga31/qwen25vision/BF16_A0_final",
+      "total_new_series_phase_bound_bytes": 164814383464
+    },
+    {
+      "anticipated_new_write_bytes": 3766206296,
+      "future_retained_model_bound_bytes": 164340353384,
+      "held_intermediate_or_resume_bytes": 457252864,
+      "manager_extra_margin_bytes": 188310315,
+      "phase": "giga31/qwen25vision/1b/A1_final",
+      "total_new_series_phase_bound_bytes": 168752122859
+    },
+    {
+      "anticipated_new_write_bytes": 6077063000,
+      "future_retained_model_bound_bytes": 164340353384,
+      "held_intermediate_or_resume_bytes": 4223459160,
+      "manager_extra_margin_bytes": 303853150,
+      "phase": "giga31/qwen25vision/1b/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 174944728694
+    },
+    {
+      "anticipated_new_write_bytes": 2136145864,
+      "future_retained_model_bound_bytes": 164340353384,
+      "held_intermediate_or_resume_bytes": 10300522160,
+      "manager_extra_margin_bytes": 106807294,
+      "phase": "giga31/qwen25vision/1b/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 176883828702
+    },
+    {
+      "anticipated_new_write_bytes": 42855823360,
+      "future_retained_model_bound_bytes": 166476499248,
+      "held_intermediate_or_resume_bytes": 4223459160,
+      "manager_extra_margin_bytes": 2142791168,
+      "phase": "giga31/qwen25vision/4f/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 215698572936
+    },
+    {
+      "anticipated_new_write_bytes": 3766246496,
+      "future_retained_model_bound_bytes": 209332322608,
+      "held_intermediate_or_resume_bytes": 4223459160,
+      "manager_extra_margin_bytes": 188312325,
+      "phase": "giga31/qwen25vision/1c/A1_final",
+      "total_new_series_phase_bound_bytes": 217510340589
+    },
+    {
+      "anticipated_new_write_bytes": 6077103200,
+      "future_retained_model_bound_bytes": 209332322608,
+      "held_intermediate_or_resume_bytes": 4223499360,
+      "manager_extra_margin_bytes": 303855160,
+      "phase": "giga31/qwen25vision/1c/SFT_final_write",
+      "total_new_series_phase_bound_bytes": 219936780328
+    },
+    {
+      "anticipated_new_write_bytes": 2136159264,
+      "future_retained_model_bound_bytes": 209332322608,
+      "held_intermediate_or_resume_bytes": 10300602560,
+      "manager_extra_margin_bytes": 106807964,
+      "phase": "giga31/qwen25vision/1c/completed_SFT_model_compaction",
+      "total_new_series_phase_bound_bytes": 221875892396
+    }
+  ],
+  "prospective_policy": {
+    "R1_R3_native_resumable_final_then_existing_model_compaction": true,
+    "all18_best_last_shared_final_models_retained": true,
+    "disk_floor_not_changed_by_this_report": true,
+    "host_headroom_GiB_unchanged": 32,
+    "only_4f_SFT_completed_model_only_final_write": true
+  },
+  "scenarios": [
+    {
+      "candidate_feature_credit_bytes": 0,
+      "candidate_feature_retirement_performed_assumption": false,
+      "final_free_upper_growth_bound_bytes": 25265990320,
+      "first_refusing_phase": "lfm25/qwen25vision/4f/SFT_final_write",
+      "fits_all_enumerated_bounds": false,
+      "minimum_actual_free_after_write_and_margin_bound_bytes": 14858579796,
+      "old_unique_scientific_weight_retirement_bytes": 0,
+      "reserve_GiB": 120,
+      "slack_above_floor_at_worst_bound_bytes": -113990439084,
+      "worst_phase": "giga31/qwen25vision/1c/completed_SFT_model_compaction"
+    },
+    {
+      "candidate_feature_credit_bytes": 0,
+      "candidate_feature_retirement_performed_assumption": false,
+      "final_free_upper_growth_bound_bytes": 25265990320,
+      "first_refusing_phase": "giga31/siglip2/4f/SFT_final_write",
+      "fits_all_enumerated_bounds": false,
+      "minimum_actual_free_after_write_and_margin_bound_bytes": 14858579796,
+      "old_unique_scientific_weight_retirement_bytes": 0,
+      "reserve_GiB": 80,
+      "slack_above_floor_at_worst_bound_bytes": -71040766124,
+      "worst_phase": "giga31/qwen25vision/1c/completed_SFT_model_compaction"
+    },
+    {
+      "candidate_feature_credit_bytes": 0,
+      "candidate_feature_retirement_performed_assumption": false,
+      "final_free_upper_growth_bound_bytes": 25265990320,
+      "first_refusing_phase": "giga31/siglip2/4f/SFT_final_write",
+      "fits_all_enumerated_bounds": false,
+      "minimum_actual_free_after_write_and_margin_bound_bytes": 14858579796,
+      "old_unique_scientific_weight_retirement_bytes": 0,
+      "reserve_GiB": 64,
+      "slack_above_floor_at_worst_bound_bytes": -53860896940,
+      "worst_phase": "giga31/qwen25vision/1c/completed_SFT_model_compaction"
+    },
+    {
+      "candidate_feature_credit_bytes": 0,
+      "candidate_feature_retirement_performed_assumption": false,
+      "final_free_upper_growth_bound_bytes": 25265990320,
+      "first_refusing_phase": "giga31/qwen25vision/4f/SFT_final_write",
+      "fits_all_enumerated_bounds": false,
+      "minimum_actual_free_after_write_and_margin_bound_bytes": 14858579796,
+      "old_unique_scientific_weight_retirement_bytes": 0,
+      "reserve_GiB": 48,
+      "slack_above_floor_at_worst_bound_bytes": -36681027756,
+      "worst_phase": "giga31/qwen25vision/1c/completed_SFT_model_compaction"
+    },
+    {
+      "candidate_feature_credit_bytes": 0,
+      "candidate_feature_retirement_performed_assumption": false,
+      "final_free_upper_growth_bound_bytes": 25265990320,
+      "first_refusing_phase": "giga31/qwen25vision/4f/SFT_final_write",
+      "fits_all_enumerated_bounds": false,
+      "minimum_actual_free_after_write_and_margin_bound_bytes": 14858579796,
+      "old_unique_scientific_weight_retirement_bytes": 0,
+      "reserve_GiB": 32,
+      "slack_above_floor_at_worst_bound_bytes": -19501158572,
+      "worst_phase": "giga31/qwen25vision/1c/completed_SFT_model_compaction"
+    },
+    {
+      "candidate_feature_credit_bytes": 30270222336,
+      "candidate_feature_retirement_performed_assumption": true,
+      "final_free_upper_growth_bound_bytes": 55536212656,
+      "first_refusing_phase": "giga31/siglip2/4f/SFT_final_write",
+      "fits_all_enumerated_bounds": false,
+      "minimum_actual_free_after_write_and_margin_bound_bytes": 45128802132,
+      "old_unique_scientific_weight_retirement_bytes": 0,
+      "reserve_GiB": 120,
+      "slack_above_floor_at_worst_bound_bytes": -83720216748,
+      "worst_phase": "giga31/qwen25vision/1c/completed_SFT_model_compaction"
+    },
+    {
+      "candidate_feature_credit_bytes": 30270222336,
+      "candidate_feature_retirement_performed_assumption": true,
+      "final_free_upper_growth_bound_bytes": 55536212656,
+      "first_refusing_phase": "giga31/qwen25vision/4f/SFT_final_write",
+      "fits_all_enumerated_bounds": false,
+      "minimum_actual_free_after_write_and_margin_bound_bytes": 45128802132,
+      "old_unique_scientific_weight_retirement_bytes": 0,
+      "reserve_GiB": 80,
+      "slack_above_floor_at_worst_bound_bytes": -40770543788,
+      "worst_phase": "giga31/qwen25vision/1c/completed_SFT_model_compaction"
+    },
+    {
+      "candidate_feature_credit_bytes": 30270222336,
+      "candidate_feature_retirement_performed_assumption": true,
+      "final_free_upper_growth_bound_bytes": 55536212656,
+      "first_refusing_phase": "giga31/qwen25vision/4f/SFT_final_write",
+      "fits_all_enumerated_bounds": false,
+      "minimum_actual_free_after_write_and_margin_bound_bytes": 45128802132,
+      "old_unique_scientific_weight_retirement_bytes": 0,
+      "reserve_GiB": 64,
+      "slack_above_floor_at_worst_bound_bytes": -23590674604,
+      "worst_phase": "giga31/qwen25vision/1c/completed_SFT_model_compaction"
+    },
+    {
+      "candidate_feature_credit_bytes": 30270222336,
+      "candidate_feature_retirement_performed_assumption": true,
+      "final_free_upper_growth_bound_bytes": 55536212656,
+      "first_refusing_phase": "giga31/qwen25vision/4f/SFT_final_write",
+      "fits_all_enumerated_bounds": false,
+      "minimum_actual_free_after_write_and_margin_bound_bytes": 45128802132,
+      "old_unique_scientific_weight_retirement_bytes": 0,
+      "reserve_GiB": 48,
+      "slack_above_floor_at_worst_bound_bytes": -6410805420,
+      "worst_phase": "giga31/qwen25vision/1c/completed_SFT_model_compaction"
+    },
+    {
+      "candidate_feature_credit_bytes": 30270222336,
+      "candidate_feature_retirement_performed_assumption": true,
+      "final_free_upper_growth_bound_bytes": 55536212656,
+      "first_refusing_phase": null,
+      "fits_all_enumerated_bounds": true,
+      "minimum_actual_free_after_write_and_margin_bound_bytes": 45128802132,
+      "old_unique_scientific_weight_retirement_bytes": 0,
+      "reserve_GiB": 32,
+      "slack_above_floor_at_worst_bound_bytes": 10769063764,
+      "worst_phase": "giga31/qwen25vision/1c/completed_SFT_model_compaction"
+    }
+  ],
+  "schema_version": 3,
+  "snapshot": {
+    "current_series_owned_SFT_bytes_rebased": 1423659008,
+    "current_series_owned_intermediate_bytes_rebased": 2861690880,
+    "free_bytes": 275022430208,
+    "old_unique_scientific_weights_kept": true
+  },
+  "source_sha256": {
+    "research_results/budget18_cache_retirement_plan_v1/report.json": "0b097eeea7e53cbb6377775431608f34a339a2091875791825a21ab80e962f2c",
+    "research_results/primary_capacity.json": "1ea2bf39a5afbd55b15c8b66183c784c72cefb369a5dcfa1c87f5d58609423b5",
+    "scripts/forecast_research_budget18_reserve_v3.py": "822ac0d026a10d92a8272d6784c9e514d52920bf17e95bbd3a224600fbe26283"
+  },
+  "status": "forecast_only_no_policy_changed_or_deletion"
+}

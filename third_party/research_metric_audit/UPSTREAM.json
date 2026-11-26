@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "repo": "EvolvingLMMs-Lab/lmms-eval",
+      "revision": "c969af54173a5b5393a6dfe8304dd87423fc9388",
+      "upstream_path": "lmms_eval/api/metrics.py",
+      "url": "https://raw.githubusercontent.com/EvolvingLMMs-Lab/lmms-eval/c969af54173a5b5393a6dfe8304dd87423fc9388/lmms_eval/api/metrics.py",
+      "local_path": "third_party/research_metric_audit/lmms_eval/metrics.py",
+      "sha256": "49821add017a73ea89606d96d58a1f01edd3981528b4802b6e41ecd38c6fd553",
+      "bytes": 30943
+    },
+    {
+      "repo": "EvolvingLMMs-Lab/lmms-eval",
+      "revision": "c969af54173a5b5393a6dfe8304dd87423fc9388",
+      "upstream_path": "lmms_eval/api/task.py",
+      "url": "https://raw.githubusercontent.com/EvolvingLMMs-Lab/lmms-eval/c969af54173a5b5393a6dfe8304dd87423fc9388/lmms_eval/api/task.py",
+      "local_path": "third_party/research_metric_audit/lmms_eval/task.py",
+      "sha256": "dba8d0e2fa113e5b74dc6734521d49d7d507f8329f1caf745c5f07980bd7d51d",
+      "bytes": 90401
+    },
+    {
+      "repo": "EvolvingLMMs-Lab/lmms-eval",
+      "revision": "c969af54173a5b5393a6dfe8304dd87423fc9388",
+      "upstream_path": "lmms_eval/tasks/gqa/gqa.yaml",
+      "url": "https://raw.githubusercontent.com/EvolvingLMMs-Lab/lmms-eval/c969af54173a5b5393a6dfe8304dd87423fc9388/lmms_eval/tasks/gqa/gqa.yaml",
+      "local_path": "third_party/research_metric_audit/lmms_eval/gqa.yaml",
+      "sha256": "4530277d93b2644b121ce6741612ffb22bbeadc6bd2e5f5301860a238f36c542",
+      "bytes": 791
+    },
+    {
+      "repo": "EvolvingLMMs-Lab/lmms-eval",
+      "revision": "c969af54173a5b5393a6dfe8304dd87423fc9388",
+      "upstream_path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/EvolvingLMMs-Lab/lmms-eval/c969af54173a5b5393a6dfe8304dd87423fc9388/LICENSE",
+      "local_path": "third_party/research_metric_audit/lmms_eval/LICENSE",
+      "sha256": "17358b5caadacb8108f14a6a319779cc8a20feed699f79c59e396e7e9dd5c33b",
+      "bytes": 2732
+    },
+    {
+      "repo": "GT-Vision-Lab/VQA",
+      "revision": "a013f0043c1e2cdc995922dfe257f7149aa9af06",
+      "upstream_path": "PythonEvaluationTools/vqaEvaluation/vqaEval.py",
+      "url": "https://raw.githubusercontent.com/GT-Vision-Lab/VQA/a013f0043c1e2cdc995922dfe257f7149aa9af06/PythonEvaluationTools/vqaEvaluation/vqaEval.py",
+      "local_path": "third_party/research_metric_audit/vqa_official/vqaEval.py",
+      "sha256": "f08edfcad5be0112500993e245c706b6cb928eadebe203f89f838e5e0d04bec8",
+      "bytes": 8428
+    },
+    {
+      "repo": "GT-Vision-Lab/VQA",
+      "revision": "a013f0043c1e2cdc995922dfe257f7149aa9af06",
+      "upstream_path": "license.txt",
+      "url": "https://raw.githubusercontent.com/GT-Vision-Lab/VQA/a013f0043c1e2cdc995922dfe257f7149aa9af06/license.txt",
+      "local_path": "third_party/research_metric_audit/vqa_official/LICENSE",
+      "sha256": "4bf86fe8b104b69fc72caaa095b2fff4bade0d3d9a7970c6a5fd01fb736cad04",
+      "bytes": 1521
+    }
+  ],
+  "licenses": {
+    "lmms_eval": "Upstream LICENSE: MIT main pipeline, Apache-2.0 tasks; exact_match_hf_evaluate explicitly Apache-2.0, HF copyright retained in source",
+    "vqa_official": "BSD-2-Clause; upstream notice retained"
+  },
+  "scope": "Unmodified public upstream source snapshots for independent metric parity and provenance; no model/data weights",
+  "additional_license": {
+    "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+    "local_path": "third_party/research_metric_audit/APACHE-2.0.txt",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  }
+}

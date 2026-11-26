@@ -1,0 +1,122 @@
+{
+  "NF4_CPU_fixture_scope": "required-key restoration contract with native tiny CPU research modules; no4bit hardware/math claim",
+  "P05_complete": false,
+  "actual_NF4_CUDA_reconstruction_tested_in_this_suite": false,
+  "actual_gpu_generation_validated": false,
+  "actual_scientific_caption_rows_generated": 0,
+  "checks": {
+    "32GiB_actual_host_cgroup_headroom_during_stream_SHA": true,
+    "A0_projector_only_checkpoint_allowed": true,
+    "actual_4f_A1_metadata_preflight": false,
+    "actual_A0_bf16_metadata_preflight": false,
+    "actual_A0_nf4_metadata_preflight": false,
+    "actual_source_config_refs_cache_and_archive_committed": true,
+    "canonical_v1_v2_globals_never_patched": true,
+    "completed_run_and_terminal_LAST_required": true,
+    "cross_stage_role_v1_v2_SFT_cache_retag_refused": true,
+    "gold_content_first_read_after_complete_durable_corpus": true,
+    "historical_BEST_accepted_only_with_owner_step_chronology": true,
+    "missing_all_or_partial_projector_refused_by_frozen_loader": true,
+    "missing_full_A1_LLM_or_new_visual_expert_key_refused_by_frozen_loader": true,
+    "retired_or_missing_checkpoint_refused_without_recreation": true,
+    "stage_train_manifest_in_pinned_full_exclusion_audit": true,
+    "tiny_native_caption_generation_no_optimizer_step_or_parameter_change": true,
+    "unchanged_full_reference_IDF_and_image_bootstrap_semantics": true,
+    "verbatim_sealed_native_generation_journal_gold_scoring_bytecode_reused": true
+  },
+  "created_utc": "2026-11-22T11:15:49.308172+00:00",
+  "dataset": {
+    "path": "datasets/research/caption-eval-pilot-en-v2",
+    "protocol_sha256": "af605a57cdfa89deb99a98aa071f02bc4ddd3975fb196ff16f083287bbdb1aa6",
+    "records": 372,
+    "scope": "pilot only; no primary caption bundle claim"
+  },
+  "deployed": false,
+  "elapsed_seconds": 8.15,
+  "eligible_stages": [
+    "A0",
+    "A1"
+  ],
+  "independent_review": {
+    "agent": "data_cache",
+    "scope": "private frozen v1/v2 isolation, deferred gold, stage/role namespace, completed terminal LAST/historical BEST, raw provenance/config/cache/source archive binding, native ZIP gate and real headroom stream guard",
+    "status": "passed_source_only",
+    "tests_edits_GPU_by_reviewer": false
+  },
+  "limits": [
+    "Root will perform real A0bf16,A0nf4 and current45.115GiB4fA1 CPU preflights after release; none were launched by this task.",
+    "Raw full-A1 source includes optimizer storage; physical file size is not decoded model RAM. Native inference mmap-restores model/P; no full-file-to-RAM equivalence or reclaimable-cache credit is assumed.",
+    "Streaming checksums can refuse when actual host/cgroup available memory falls below32GiB; the profile never forces fit.",
+    "Only current frozen native reconstruction compatibility is inherited; this wrapper does not add new backbone/quantization kernels.",
+    "Training source receipts retain their original capture_scope; archived filesystem bytes do not retrospectively attest every originally loaded module.",
+    "Retired4qA1 stays missing; no new historical checkpoint is fabricated.",
+    "Generation remains native greedy B1,max_new_tokens256,with the same per-run prompt contract and complete372 gold gate."
+  ],
+  "optimizer_updates_performed": 0,
+  "output_namespace": "RUN/evaluation/caption_stages_pilot_en_v2/STAGE/ROLE",
+  "owner": "research_caption_completed_stages_native_b1_v1",
+  "preserved_current_frozen_readiness_bindings": {
+    "configs/research/caption_data_v2_signal_safe_ready.json": {
+      "all_current_bytes_match": true,
+      "ready_sha256": "3e8d0a474add2c6f1a93fbd49780e2f07378beb3fbbc3319a90d3b7bcd02fa29",
+      "source_bindings_verified": 3
+    },
+    "configs/research/caption_evaluator_ready.json": {
+      "all_current_bytes_match": true,
+      "ready_sha256": "04f980e43f8ccbad05939aef1cc18040ca0475092bb84bbbc407fb0d1a4cc526",
+      "source_bindings_verified": 20
+    },
+    "configs/research/caption_evaluator_v2_ready.json": {
+      "all_current_bytes_match": true,
+      "ready_sha256": "9fef32e40ccdd34876bdf76e7a066b0cf6abd4bfe6c388ba12e4500d4363e335",
+      "source_bindings_verified": 24
+    },
+    "configs/research/parallel_b1_full_evaluator_ready.json": {
+      "all_current_bytes_match": true,
+      "ready_sha256": "5b4770e95ada02e50192ad619bb54d5f6f5a41138180bde5c86c7928e6e52db0",
+      "source_bindings_verified": 25
+    },
+    "configs/research/parallel_grounding_handoff_ready.json": {
+      "all_current_bytes_match": true,
+      "ready_sha256": "579e95d670c17494c39a31ed062535f59a6c53418cf935761816b1e880062a84",
+      "source_bindings_verified": 41
+    },
+    "configs/research/parallel_grounding_queue_ready.json": {
+      "all_current_bytes_match": true,
+      "ready_sha256": "d56ef908a9da4a920952fc8c5130d078f26a1fe6b7543b44beaaf3e3e66449cc",
+      "source_bindings_verified": 33
+    },
+    "configs/research/weighted_sft_ready.json": {
+      "all_current_bytes_match": true,
+      "ready_sha256": "ca82136d8b6cfe90adb6ca9a39753a1d4e957439e975738c1fe794b1705699c4",
+      "source_bindings_verified": 6
+    }
+  },
+  "primary_completion_claim": false,
+  "readiness_scope": "completed A0/A1 caption metadata owner; actual stage CPU preflights and GPU generation are Root scheduled after release",
+  "readiness_version": 1,
+  "roles": [
+    "best",
+    "last"
+  ],
+  "schema_version": 1,
+  "services_launched": false,
+  "source_format_scope": "retained native Torch ZIP mmap checkpoints; split/compressed formats require a separate decoder-memory profile",
+  "source_sha256": {
+    "scripts/eval_research_stage_caption.py": "22cab313d99edef0866af6ae3fd5a21799527e30cdfcd794c9bc644cd3cf9720",
+    "scripts/prepare_research_caption_eval_v2.py": "e8d6c58e11cd1b864931043743243f572b4f31a202c3652f9195f04f366512a9",
+    "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+    "src/eval/research_caption_data_v2.py": "5bfb38fb3f07b028e44955202306b9ad7f966cb1f3a9b6dcbfb75a6949c85b62",
+    "src/eval/research_caption_generation.py": "754c261266ab3544d81560abd90447d6abc2ad6b74b987321d007815407abefa",
+    "src/eval/research_caption_generation_v2.py": "a27f5bc5074352f1941bc4e34e519b9bac107667cdf7221a3a5b446d384cdb5e",
+    "src/eval/research_caption_metrics.py": "bb64e009a84ae88d5681d11af88fe510b9026b75b711f8b3fc457ca62f628e10",
+    "src/eval/research_caption_stages.py": "04d507188116fb921ab421de6c0535258b03a5f99b5b76536409575035c4e17e",
+    "src/eval/research_inference.py": "47576ba901c5e6ba3dc95b8c8777872d36c3ea73f2a4e0c6d74a0955df75744d",
+    "src/eval/research_text_generation.py": "b311a58969a28888169ed965c5d919b9dee2ddf4743787655e54af9d33182e0e",
+    "tests/test_research_caption_stages.py": "3889b5b586aedd328970e5f80bacaa0c36815f3e558a7164c813101b1d1a9eda"
+  },
+  "status": "cpu_proposal_tests_passed",
+  "test_command": "CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m pytest -q tests/test_research_caption_stages.py",
+  "tests_passed": 29,
+  "warnings": 0
+}

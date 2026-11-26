@@ -1,0 +1,75 @@
+{
+  "actual_GPU_or_scientific_checkpoint_written": false,
+  "actual_full_size_R2_save_proven": false,
+  "api": [
+    "definition()",
+    "install_module(private_runner)",
+    "patched_backend(backend) contextmanager onlyexplicit4fSFT",
+    "recover_if_published(run, expected_args=None) CPU-only publishedfinalproof"
+  ],
+  "checks": {
+    "32GiB_hostguard_fullSHA_chunks_and_stream_writes": true,
+    "actual_crash_after_immutable_rename_before_first_pointer_recovers_unique_owned_object": true,
+    "all_model_P_scheduler_RNG_config_metric_dtypes_bits_aliases_preserved": true,
+    "different_current_invocation_or_corruption_refused": true,
+    "disk_floor_not_changed_by_helper": true,
+    "durable116_raw_and34textCE_before_checkpoint": true,
+    "manager_ownatomic_bestlast_singleobject_preserved": true,
+    "nativeTorchZIP_owned_new_staging_stream_fsync_no_cache_credit": true,
+    "native_numerical_selection_function_unchanged": true,
+    "no_canonical_or_sealed_source_edits": true,
+    "only_whole56step3529record_4fSFT": true,
+    "optimizer_only_omitted_after_complete_training_end_validation": true,
+    "original_input_payload_optimizer_not_mutated": true,
+    "outer_filter_precedes_existing_exact_storage_counter": true,
+    "partial_pointer_recovery_no_optimizer_updates": true,
+    "private_main_returns_before_model_optimizer_training_on_recovery": true,
+    "published_native_payload_complete_source_intent_config_endvalidation_SHA_bound": true,
+    "recovery_under_manager_EX_lock": true
+  },
+  "created_unix": 1795373983.974246,
+  "limitations": [
+    "Prototype isolated CPU proof; actualfullR2save remainsROOT-managed and resource-gated.",
+    "Only completed optimizer is omitted; optimizercontinuationofthatcompletedstageis explicitlyforbidden.",
+    "Actual endvalidation itself is unchangedfrozen code; unitfixture testsreceipt/writer/recoverywiring, notfullmodelquality.",
+    "No oldweightsdeleted or checkpointformatsretagged; separateRootresource32policy/cachetrim is required for all18 storage feasibility."
+  ],
+  "owner": "budget18_completed_R2_model_only_v1",
+  "policy": {
+    "disk_reserve_setting_and32GiB_host_floor_unchanged": true,
+    "model_scheduler_RNG_dtype_aliases_preserved": true,
+    "only_recipe": "4f",
+    "only_stage": "SFT",
+    "optimizer_resume_after_completed_stage": false,
+    "owner": "budget18_completed_R2_model_only_v1",
+    "seen": 3529,
+    "selection_records": 116,
+    "source_sha256": {
+      "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+      "src/utils/research_budget_stream_save_v1.py": "a4499784699f09eb2e820fd92ca0723e53d158673a702e959c220b9278515b4a",
+      "src/utils/research_completed_r2_v1.py": "262aed0cbe41a1290fdbc363d4832afbafbd1a3d8ee26a387c27b260da0255ac"
+    },
+    "step": 56,
+    "text_validation_records": 34,
+    "version": 1
+  },
+  "review_status": "peer_final_source_recheck_requested; independent_ROOT review required before service adoption",
+  "schema_version": 1,
+  "source_sha256": {
+    "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+    "src/eval/research_selection.py": "91c05924df717ce46ef22787dfa5b4b0e45e35533096769373be62ceda3cade2",
+    "src/utils/research_budget_storage_v1.py": "f5e33c4fdea84f9ec8e180dda786e4301cfd02f122fc985a24d91d82858acbfe",
+    "src/utils/research_budget_stream_save_v1.py": "a4499784699f09eb2e820fd92ca0723e53d158673a702e959c220b9278515b4a",
+    "src/utils/research_completed_r2_v1.py": "262aed0cbe41a1290fdbc363d4832afbafbd1a3d8ee26a387c27b260da0255ac",
+    "src/utils/research_lossless_delta.py": "e53d1a39082ed022ef07d908b148bd18fa2798af65df42f16d0cbb98e53175a3",
+    "tests/test_research_completed_r2_v1.py": "6a5a9ed261f04cc342edba7a78f96e60b2ec17e6984093211681755d837af4e3"
+  },
+  "status": "passed",
+  "test_command": "PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TOKENIZERS_PARALLELISM=false PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /venv/main/bin/python -m pytest -q tests/test_research_completed_r2_v1.py --junitxml=research_results/completed_r2_v1_cpu_tests.xml",
+  "test_report": {
+    "path": "research_results/completed_r2_v1_cpu_tests.xml",
+    "sha256": "9485a079ce82ad7265997cd48cedc0f961221e8fc29fe11f3e90478856dc6b3b"
+  },
+  "test_seconds": 6.218,
+  "tests_passed": 14
+}

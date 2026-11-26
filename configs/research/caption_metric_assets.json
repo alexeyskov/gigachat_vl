@@ -1,0 +1,92 @@
+{
+  "algorithm": {
+    "clipping": true,
+    "document_frequency": "fixed full evaluation reference-image corpus; per-image union of reference ngrams",
+    "gaussian_length_penalty": true,
+    "name": "COCO-caption CIDEr",
+    "ngrams": 4,
+    "raw_scale": "0-10",
+    "sigma": 6.0
+  },
+  "declared_max_asset_staging_bytes": 314572800,
+  "java": {
+    "libjvm_path": "/workspace/.research_eval_assets/caption_v1/temurin8u514-b01-jre/lib/amd64/server/libjvm.so",
+    "libjvm_sha256": "8c73e7fcbd0217930661bb200efae6f426aedce0ce205d8ea13fe65c511489ad",
+    "path": "/workspace/.research_eval_assets/caption_v1/temurin8u514-b01-jre/bin/java",
+    "release_archive_bytes": 41870390,
+    "release_archive_sha256": "b3e38dc60261a548fe83d297bf6faf7880f1b84f7d48e5741f3c6f3c3021cd4d",
+    "release_url": "https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u514-b01/OpenJDK8U-jre_x64_linux_hotspot_8u514b01.tar.gz",
+    "sha256": "32239035b9aa82d354466ab5554c2fc1b8d354a34873946d6d5678e67242930c",
+    "version_stderr": "openjdk version \"1.8.0_514\"\nOpenJDK Runtime Environment (Temurin)(build 1.8.0_514-b01)\nOpenJDK 64-Bit Server VM (Temurin)(build 25.514-b01, mixed mode)\n"
+  },
+  "original_revision": "3a9afb2682141a03e1cdc02b0df6770d2c884f6f",
+  "port_revision": "a24f74c408c918f1f4ec34e9514bc8a76ce41ffd",
+  "ptb_jar": {
+    "bytes": 5921410,
+    "git_blob_sha1": "3cfa0a0ba01eb061f455d6478629e05fbcd68d97",
+    "path": "/workspace/.research_eval_assets/caption_v1/stanford-corenlp-3.4.1.jar",
+    "sha256": "2fcb91bb7a111f93d71e264f4ee0e3afd19ba0dde6d21b38605088df9e940399",
+    "upstream_revision": "3a9afb2682141a03e1cdc02b0df6770d2c884f6f",
+    "url": "https://raw.githubusercontent.com/tylin/coco-caption/3a9afb2682141a03e1cdc02b0df6770d2c884f6f/pycocoevalcap/tokenizer/stanford-corenlp-3.4.1.jar"
+  },
+  "python2_port_changes": [
+    "xrange to range",
+    "iteritems to items",
+    "terminal newline"
+  ],
+  "schema_version": 1,
+  "scope": "CPU CIDEr and canonical Stanford PTB tokenizer only",
+  "scorer_path": "/workspace/gigachat_vl/third_party/research_caption/cider_scorer.py",
+  "scorer_sha256": "299037838373391c3335e066c867ba2d6dd8617d2c8fb2c4193f32620a774adc",
+  "sources": {
+    "LICENSE": {
+      "bytes": 1561,
+      "path": "license.txt",
+      "repo": "salaniz/pycocoevalcap",
+      "revision": "a24f74c408c918f1f4ec34e9514bc8a76ce41ffd",
+      "sha256": "9f8590ca85ce66aa9c2635200c358cde5187c7891cc5b37798b354254a53b1d5",
+      "url": "https://raw.githubusercontent.com/salaniz/pycocoevalcap/a24f74c408c918f1f4ec34e9514bc8a76ce41ffd/license.txt"
+    },
+    "cider_scorer.py": {
+      "bytes": 7681,
+      "path": "cider/cider_scorer.py",
+      "repo": "salaniz/pycocoevalcap",
+      "revision": "a24f74c408c918f1f4ec34e9514bc8a76ce41ffd",
+      "sha256": "299037838373391c3335e066c867ba2d6dd8617d2c8fb2c4193f32620a774adc",
+      "url": "https://raw.githubusercontent.com/salaniz/pycocoevalcap/a24f74c408c918f1f4ec34e9514bc8a76ce41ffd/cider/cider_scorer.py"
+    },
+    "original_cider_scorer_py2.py": {
+      "bytes": 7694,
+      "path": "pycocoevalcap/cider/cider_scorer.py",
+      "repo": "tylin/coco-caption",
+      "revision": "3a9afb2682141a03e1cdc02b0df6770d2c884f6f",
+      "sha256": "13e222f84e82d74b606d6afdb97d225bebddc6d1c7ee063f196d6d1ed931c6b2",
+      "url": "https://raw.githubusercontent.com/tylin/coco-caption/3a9afb2682141a03e1cdc02b0df6770d2c884f6f/pycocoevalcap/cider/cider_scorer.py"
+    },
+    "original_ptbtokenizer_py2.py": {
+      "bytes": 2808,
+      "path": "pycocoevalcap/tokenizer/ptbtokenizer.py",
+      "repo": "tylin/coco-caption",
+      "revision": "3a9afb2682141a03e1cdc02b0df6770d2c884f6f",
+      "sha256": "663c7aca1b1044040a3d75136540b7ed812b7655701ad1619906fdb8c41025fe",
+      "url": "https://raw.githubusercontent.com/tylin/coco-caption/3a9afb2682141a03e1cdc02b0df6770d2c884f6f/pycocoevalcap/tokenizer/ptbtokenizer.py"
+    },
+    "ptbtokenizer_reference.py": {
+      "bytes": 3112,
+      "path": "tokenizer/ptbtokenizer.py",
+      "repo": "salaniz/pycocoevalcap",
+      "revision": "a24f74c408c918f1f4ec34e9514bc8a76ce41ffd",
+      "sha256": "34bb5e9c16c1af74f4c3eeed56aed5c33c0f8e1f588783977f76fb5a7d1934b9",
+      "url": "https://raw.githubusercontent.com/salaniz/pycocoevalcap/a24f74c408c918f1f4ec34e9514bc8a76ce41ffd/tokenizer/ptbtokenizer.py"
+    }
+  },
+  "tokenizer": {
+    "encoding": "UTF-8",
+    "flags": [
+      "-preserveLines",
+      "-lowerCase"
+    ],
+    "name": "Stanford PTBTokenizer CoreNLP3.4.1"
+  },
+  "training_environment_modified": false
+}

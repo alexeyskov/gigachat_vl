@@ -1,0 +1,31 @@
+{
+  "status": "passed",
+  "owner": "ROOT",
+  "created_unix": 1795382332.4822497,
+  "scientific_cells": 18,
+  "training_jobs": 42,
+  "initial_microbatch_new_jobs": 64,
+  "effective_batch": 64,
+  "native_OOM_whole_group_gradient_and_RNG_rollback": true,
+  "already_created_config_batch_sizes_preserved_by_exact_config_sha": true,
+  "tests": {
+    "queue_and_handoff": "79 passed,1 deselected in8.01s",
+    "deselected": "Old retained-A0/A1 live-fixture test: those checkpoints have legitimately been consumed/pruned with receipts; frozen test source preserved",
+    "native_OOM_forward_backward_weighted_rollback": "15 passed,22 unrelated deselected,4subtests in5.72s"
+  },
+  "actual_CPU_preflights": {
+    "path": "research_results/budget18_microbatch64_policy_v1/actual_CPU_preflights.json",
+    "sha256": "4a3438b42fc2367a0709679c92991567c9bc1f49081bd7ecb41b5ab41de619b4"
+  },
+  "source_sha256": {
+    "scripts/research_budget18_queue_v4.py": "c75e29bbd4b8e54dc2dba90408c074dc60a4fd1c3408d92357e8a76b225109f5",
+    "scripts/handoff_research_budget18_v4.py": "3f9f3508192c04f946ad9e1a9594406aaecc995c6768cd1ec36c7f591ad1b70e",
+    "tests/test_research_budget18_queue_v4.py": "4f38742ff77600c148fe8ccf4bb045558efd5ad7242cbb3092052a0743105639",
+    "tests/test_research_budget18_handoff_v4.py": "184600ca168bf7f52023b9a7d2db2b32e3e0e180db6cefa9d9bbb28aaca4216a"
+  },
+  "resource_ready": {
+    "path": "configs/research/budget18_resource_v3_ready.json",
+    "sha256": "95f9df2858b14eca039a9c19b65a6ca3d38f150645dafe606e954869f6f8f444"
+  },
+  "new_GPU_fit_or_speed_claimed": false
+}

@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "created_utc": "2026-11-22T07:35:53.006197+00:00",
+  "scope": "CPU caption scorer and asset readiness only; no checkpoint-bound generation or primary result",
+  "tests_passed": 12,
+  "test_command": "CUDA_VISIBLE_DEVICES='' /venv/main/bin/python -m pytest -q tests/test_research_caption_metrics.py",
+  "test_seconds": 2.1,
+  "source_sha256": {
+    "src/eval/research_caption_metrics.py": "bb64e009a84ae88d5681d11af88fe510b9026b75b711f8b3fc457ca62f628e10",
+    "scripts/prepare_research_caption_assets.py": "891897e6ade81cb956480d0f5798ccc5558e4cf794787ea4966b28e4ff0f4f4b",
+    "tests/test_research_caption_metrics.py": "8a1771386358635126a332def25eb9e3e0db9d1aa208c4d492d1af8c13fab9e3",
+    "configs/research/caption_metric_assets.json": "706b00f9ba10a63646c10c4c7a1fd8678f6cbf8248fc0cc7e2ce982de0bc986b",
+    "third_party/research_caption/LICENSE": "9f8590ca85ce66aa9c2635200c358cde5187c7891cc5b37798b354254a53b1d5",
+    "third_party/research_caption/README.md": "b1bcfe968fad5fde2965d31f8e46b1e51198eed65ac7b29b3185070a38724300",
+    "third_party/research_caption/cider_scorer.py": "299037838373391c3335e066c867ba2d6dd8617d2c8fb2c4193f32620a774adc",
+    "third_party/research_caption/original_cider_scorer_py2.py": "13e222f84e82d74b606d6afdb97d225bebddc6d1c7ee063f196d6d1ed931c6b2",
+    "third_party/research_caption/original_ptbtokenizer_py2.py": "663c7aca1b1044040a3d75136540b7ed812b7655701ad1619906fdb8c41025fe",
+    "third_party/research_caption/provenance.json": "575d154e7dbd32311bcdffe3684357417da0e585649311e5b368addd34944ed5",
+    "third_party/research_caption/ptbtokenizer_reference.py": "34bb5e9c16c1af74f4c3eeed56aed5c33c0f8e1f588783977f76fb5a7d1934b9"
+  },
+  "checks": {
+    "actual_stanford_ptb_matches_pinned_port_wrapper": true,
+    "exact_original_cider_float64_image_and_mean_parity": true,
+    "full_fixed_reference_corpus_idf": true,
+    "empty_final_predictions_preserved": true,
+    "no_accumulating_df_between_calls": true,
+    "mismatched_corpus_or_asset_mutation_refused": true,
+    "fixed_df_image_bootstrap_seeded": true,
+    "no_training_stack_import_or_cuda": true
+  },
+  "fixture_result": {
+    "schema_version": 1,
+    "metric": "COCO-caption CIDEr",
+    "images": 3,
+    "references_per_image": {
+      "bird": 1,
+      "cat": 1,
+      "dog": 1
+    },
+    "single_reference_only": true,
+    "cider_raw": 10.0,
+    "raw_scale": "0-10",
+    "cider_times100": 1000.0,
+    "times100_scale": "0-1000; explicit reporting conversion, not VQA accuracy",
+    "per_image": {
+      "bird": 10.0,
+      "cat": 10.0,
+      "dog": 10.0
+    },
+    "references_sha256": "1eded23be669bd687188b6bd8c1a2d83d7a7b629704bc031e794c16861e2be33",
+    "predictions_sha256": "e2e3a58f2c5f1205a6ceae1397f85ac81694fb083dc0f04ccd8615e02f7767b3",
+    "tokenized_references_sha256": "3a4475aecf13752af0d23dbba07383081b8d706b543844cc07e8532574aafc3a",
+    "tokenized_predictions_sha256": "da3531e492b0aba0c5465c28e489f2c98bfedcf8c31563c738d092dbf7defd56",
+    "assets_sha256": "706b00f9ba10a63646c10c4c7a1fd8678f6cbf8248fc0cc7e2ce982de0bc986b",
+    "scorer_sha256": "299037838373391c3335e066c867ba2d6dd8617d2c8fb2c4193f32620a774adc",
+    "tokenizer_jar_sha256": "2fcb91bb7a111f93d71e264f4ee0e3afd19ba0dde6d21b38605088df9e940399",
+    "numpy_version": "2.5.5",
+    "idf_policy": "fixed full supplied reference-image corpus; no prediction-derived IDF",
+    "tokenizer": "Stanford PTB3.4.1 preserveLines lowerCase; original COCO punctuation filter",
+    "input_newlines": "CRLF/CR/LF converted to spaces before PTB; final empty outputs retained",
+    "checkpoint_binding": "not established by this scorer; generation owner must bind actual predictions"
+  },
+  "fixture_bootstrap": {
+    "mean": 10.0,
+    "image_95_percentile_ci": [
+      10.0,
+      10.0
+    ],
+    "replicates": 1000,
+    "seed": 42,
+    "unit": "unique canonical image",
+    "idf_policy": "original full-corpus IDF fixed; per-image scores resampled",
+    "cross_seed_inference": false
+  },
+  "training_environment_packages_modified": false,
+  "global_java_installed": false,
+  "new_asset_download_bytes": 47814656,
+  "free_disk_gib": 365.53167724609375,
+  "remaining_requirements": [
+    "immutable caption manifest with train-overlap checks",
+    "checkpoint-bound raw caption generation",
+    "actual model/encoder integration and resource calibration",
+    "primary full data and contamination gates"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "ready": true,
+  "tests": "tests/test_research_queue.py: 19 passed, 2 subtests passed in 0.24s",
+  "time_unix": 1795312744.203176,
+  "scope": "optional job.evaluation after successful trainer artifacts and compaction; raw scores/hash coverage verified; distinct eval-failure state"
+}

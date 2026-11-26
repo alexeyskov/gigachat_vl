@@ -1,0 +1,101 @@
+{
+  "A0_repeat_cap": 1,
+  "A0_train_exposures": 200000,
+  "A0_unique_canonical_RGB_images": 200000,
+  "A1_additional_unique_images": 0,
+  "A1_repeat_cap_within_stage": 1,
+  "A1_source": "deterministic 10K subset of A0 TRAIN, same across all11 branches",
+  "A1_train_exposures": 10000,
+  "GPU_training_authorized": false,
+  "LLaVA_unit": "one verified original ordered dialogue, uniform unit mass; cyclic eligible target turn chosen by fixed hashed phase",
+  "actual_eligible_pool_counts_known": false,
+  "data_sampling_requires_source_registry_sha256": true,
+  "data_seed": 42,
+  "frozen_pilot_or_runtime_modified": false,
+  "groups": {
+    "charts_diagrams": {
+      "fraction_basis_points": 2000,
+      "sources": [
+        "chartqa",
+        "ai2d"
+      ]
+    },
+    "general_vqa": {
+      "fraction_basis_points": 3500,
+      "sources": [
+        "vqav2",
+        "gqa",
+        "llava_instruct"
+      ]
+    },
+    "knowledge_reasoning": {
+      "fraction_basis_points": 1500,
+      "sources": [
+        "aokvqa",
+        "scienceqa"
+      ]
+    },
+    "ocr_documents": {
+      "fraction_basis_points": 3000,
+      "sources": [
+        "textvqa",
+        "docvqa",
+        "infographic_vqa"
+      ]
+    }
+  },
+  "internal_validation_component_basis_points": 200,
+  "model_seeds_do_not_change_manifests": true,
+  "multimodal_repeat_cap_per_unit_per_epoch": 4,
+  "one_exposure": "one supervised target turn; verified dialogue preserves only genuine preceding history",
+  "other_VQA_unit": "one independent QA, never inherit sibling questions/answers",
+  "primary_manifest_exists": false,
+  "profile": "primary_train_en_v1_pool_proportional",
+  "refill": "scan pinned sources in fixed hash-ranked shard/row order; apply all audits first; allocate from actual eligible pools; fail on insufficient capacity",
+  "required_audits": [
+    "source_bytes_and_original_train_split_verified",
+    "language_english_passed",
+    "all_four_backbone_native_context_census_passed",
+    "record_and_conversation_dedup_passed",
+    "all_declared_heldout_RGB_and_source_ids_disjoint",
+    "all_official_heldout_coverage_complete",
+    "near_image_and_document_review_complete",
+    "all_15902_text_heldout_inputs_screened",
+    "document_and_dialogue_component_links_verified",
+    "licenses_and_source_lineage_reviewed"
+  ],
+  "schema_version": 1,
+  "sft_mm_train_exposures": 500000,
+  "sft_text_train_exposures": 88236,
+  "source_policy_revision_reason": "ScienceQA6149 prefilter assistant entries cap4 capacity24596 <37500 old equal-source quota; data-capacity evidence, no pilot scores",
+  "sources": [
+    "vqav2",
+    "llava_instruct",
+    "textvqa",
+    "docvqa",
+    "infographic_vqa",
+    "chartqa",
+    "ai2d",
+    "aokvqa",
+    "scienceqa",
+    "gqa",
+    "pixmo_repack",
+    "smoltalk"
+  ],
+  "status": "prospective_protocol_primary_P01_P02_partial",
+  "text_count_rule": "ceil(500000*15/85); record fraction rounded upward by <1 record",
+  "text_fraction": 0.150001019998776,
+  "text_repeat_cap": 1,
+  "unique_counts_required": [
+    "source parent rows",
+    "sampling units",
+    "dialogues",
+    "supervised target turns",
+    "RGB images",
+    "document components",
+    "exposures",
+    "repeated units",
+    "target tokens"
+  ],
+  "within_group_allocation": "largest remainder proportional to actual post-audit eligible sampling-unit counts; lexical source-ID remainder ties"
+}

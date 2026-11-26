@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "status": "data_only_capacity_algorithm_CPU_tests_passed_actual_primary_pool_and_manifests_absent",
+  "profile": "primary_train_en_v3_common_audited_capacity",
+  "tests_passed": 11,
+  "test_command": "CUDA_VISIBLE_DEVICES='' /venv/main/bin/python -m pytest tests/test_research_primary_protocol_v3.py -q",
+  "source_sha256": {
+    "src/dataset/research_primary_protocol_v3.py": "0e51c79fc42409c2d302eb333db57024d5597d300ed12952859d27ed2efa021a",
+    "tests/test_research_primary_protocol_v3.py": "53fe4329dba68f68c946dc9d37e61733aae3118c03bd026eb24f1bc9e685558d",
+    "research_results/freeze_primary_capacity_rule_v3.py": "20f276c7c48c95f0ac7757079849521b7158b13b98f0de2e5457886f41e51844",
+    "src/dataset/research_primary_protocol_v2.py": "a0ab330a1c7b29889fcc5819abdc5db0af129b1486fc884b8d098663472c03c7",
+    "src/dataset/research_primary_protocol.py": "3f33083610382bb4d0ce9f72ab91010ad34267a0d88d1c808275ac7aa8bd8eb4"
+  },
+  "configuration": {
+    "path": "/workspace/gigachat_vl/configs/research/primary_train_en_v3.json",
+    "bytes": 5678,
+    "sha256": "8d54606fe162c01740b5bf0aa050c78ebc683fa0fa614cf1555f86b3764fc216"
+  },
+  "source_registry": {
+    "path": "/workspace/gigachat_vl/research_results/primary_source_registry_v4.json",
+    "bytes": 97476,
+    "sha256": "1f9cb3c4b77e8c071f1217505b72453e06d3e3031f9c71b83e0451fcc86e57bf"
+  },
+  "counterexample": {
+    "path": "/workspace/gigachat_vl/research_results/primary_sft_availability_v18/original_ID_knowledge_capacity_counterexample.json",
+    "bytes": 2953,
+    "sha256": "d7ab925dcba615e242a608ea55f255c78aac60a2fe32041586da6dbb6f08f41c"
+  },
+  "original_v2_config": {
+    "path": "/workspace/gigachat_vl/configs/research/primary_train_en_v2.json",
+    "bytes": 4125,
+    "sha256": "ecbdc7c42da52f9b35848260d61b94f00a6ead5e29572de901c42b48f720f647"
+  },
+  "original_v3_registry": {
+    "path": "/workspace/gigachat_vl/research_results/primary_source_registry_v3.json",
+    "bytes": 96064,
+    "sha256": "9fc68319368105f84444ddd0f20adc9a95f80e0801c7998cc192ffc78431368b"
+  },
+  "rule_frozen_before_PRIMARY_scores": true,
+  "actual_common_audited_pool_counts": null,
+  "actual_final_group_counts": null,
+  "same_data_all_backbones_donors_recipes": true,
+  "all10_sources_500K_MM_88236text_and_cap4_preserved": true,
+  "GPU_training_authorized": false,
+  "primary_ready": false
+}

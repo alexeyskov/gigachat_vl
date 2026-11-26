@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "owner": "research_small_gate_control_stock_serial_p07_v1",
+  "status": "cpu_tests_passed_actual_gpu_not_run",
+  "created_unix": 1795356622.2738993,
+  "source_sha256": {
+    "configs/research/gate_controls_context_ready.json": "1799eeb17ae1401cca4813586e3d4c1df8f7a1c5405b1504108e9e27b39be58e",
+    "scripts/eval_research_gate_checkpoint.py": "8f1c69bee44a904837ba0d760daeed6a1200df192bd7de5c2d11b59f0ea0ffdc",
+    "scripts/eval_research_gate_control.py": "65bc274ab0e125f821ef6335c4bd54d837c578f8280ac3b34ca32704abf47dfc",
+    "scripts/research_grounding_queue.py": "b99dfd413edd4176288734262197a72b3df4720e01d562e4b76f625b70d0a1d9",
+    "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+    "src/eval/research_caption_generation.py": "754c261266ab3544d81560abd90447d6abc2ad6b74b987321d007815407abefa",
+    "src/eval/research_gate_controls.py": "1171e75bf9792a4ce2487898d40d9666ed64384409a724b521ed4bd92484c7e0",
+    "src/eval/research_gate_evaluation.py": "ed520c80593a9749761536abf3bac290e7d42ea55a439d7d5777acced7d02e0c",
+    "src/eval/research_inference.py": "47576ba901c5e6ba3dc95b8c8777872d36c3ea73f2a4e0c6d74a0955df75744d",
+    "src/eval/research_metrics.py": "440424ed720dbf17fce9a12ccb4ec6565f30298c6c40e9b47fd0ab60a8ed6844",
+    "src/eval/research_parallel_protocol.py": "c4b6b693dc1e7f8592290361573344dbf2760c3bcbe8dc870358c35062e2fa30",
+    "src/model/research_moe.py": "f8cbfd6a8fdb7044d25d031f0a028055cb114a7ebd71a9b4f873dcd752674c6c",
+    "src/model/smallthinker.py": "7d5aaa551b98e7958f1a69930c797f7906d7c770084b156ba36cc5d577cbdd26",
+    "tests/test_research_gate_controls.py": "3bcda134cbdaea7c452d16a7a447d5dab1a5d6ed7fd4b1c7ee47145854edbb63",
+    "tests/test_research_gate_evaluation.py": "19f33cb6993b0c6d8a2261b7a881558ab73c80da599ef609470732eb5d1b78b5",
+    "third_party/vqa_normalization/tables.json": "ba9b45e88fcf697c1de6e550158ab9fbbe4d8456e4da34f3c61079e35823bce8",
+    "configs/research/gate_serial_evaluator_ready.json": "71a5752032342765483ea20fe70b7a5bc973341ecec9077dde5d35a1359794e5",
+    "scripts/eval_research_checkpoint.py": "cf06fcf7ba5c2be4860d58781478de7b51a101c21a4bc8cd95ebb333220baff2",
+    "scripts/validate_research_checkpoint.py": "5fb59747dad1badb376e5cc95aa4f9551e35556a24067d1bf182c89140ee9626",
+    "src/eval/research_selection.py": "91c05924df717ce46ef22787dfa5b4b0e45e35533096769373be62ceda3cade2",
+    "src/utils/research_stock_determinism.py": "98b74c07ae75870bb75f58ab7c63ba73f45940d32855395c41dd54fd2d0c178c",
+    "scripts/run_research_stock_deterministic.py": "87403cd21df0de50f781bc12e9b13f02117ede9fd8bc5dda7fc4c63abff8ff13",
+    "scripts/eval_research_stock_deterministic.py": "c599ca276249342678be10c6d13c3333319ab3dae02572b411826b50b4866e31",
+    "scripts/validate_research_stock_deterministic.py": "af72c5d6ffd60776d6cede9e2e381e3db5cc6009d37f7410fc5ae4cdbb297292",
+    "src/eval/research_gate_stock_evaluation.py": "1a659c1e6e7bd6f636cdd183551d94a24b3114a8c5f4926e7d737257b02b384d",
+    "scripts/eval_research_gate_stock_checkpoint.py": "1573117bca38e0db7573b0e06e149d28635148829bf346271f6467717d7da9b3",
+    "tests/test_research_gate_stock_evaluation.py": "29d4659750d74f057a557b1c2b5bd78106ea15ae787b732191e1a76e156da373"
+  },
+  "execution_profile": {
+    "owner": "research_small_gate_control_stock_serial_p07_v1",
+    "numerical_definition": {
+      "name": "stock_deterministic_small_v1",
+      "schema_version": 1,
+      "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+      "deterministic_algorithms": true,
+      "warn_only": false,
+      "cublas_workspace_config": ":4096:8",
+      "matmul_allow_tf32": true,
+      "torch_threads": 8,
+      "custom_kernels": false,
+      "source_sha256": {
+        "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+        "scripts/eval_research_checkpoint.py": "cf06fcf7ba5c2be4860d58781478de7b51a101c21a4bc8cd95ebb333220baff2",
+        "scripts/validate_research_checkpoint.py": "5fb59747dad1badb376e5cc95aa4f9551e35556a24067d1bf182c89140ee9626",
+        "src/eval/research_inference.py": "47576ba901c5e6ba3dc95b8c8777872d36c3ea73f2a4e0c6d74a0955df75744d",
+        "src/eval/research_selection.py": "91c05924df717ce46ef22787dfa5b4b0e45e35533096769373be62ceda3cade2",
+        "src/model/smallthinker.py": "7d5aaa551b98e7958f1a69930c797f7906d7c770084b156ba36cc5d577cbdd26",
+        "src/model/research_moe.py": "f8cbfd6a8fdb7044d25d031f0a028055cb114a7ebd71a9b4f873dcd752674c6c",
+        "src/utils/research_stock_determinism.py": "98b74c07ae75870bb75f58ab7c63ba73f45940d32855395c41dd54fd2d0c178c",
+        "scripts/run_research_stock_deterministic.py": "87403cd21df0de50f781bc12e9b13f02117ede9fd8bc5dda7fc4c63abff8ff13",
+        "scripts/eval_research_stock_deterministic.py": "c599ca276249342678be10c6d13c3333319ab3dae02572b411826b50b4866e31",
+        "scripts/validate_research_stock_deterministic.py": "af72c5d6ffd60776d6cede9e2e381e3db5cc6009d37f7410fc5ae4cdbb297292"
+      },
+      "runtime_versions": {
+        "__version__": "2.15.0+cu132",
+        "cuda": "13.2",
+        "git_version": "d0f2af8b66b20da4baa50644c0cd3f887a2eae2e",
+        "hip": null
+      },
+      "package_versions": {
+        "torch": "2.15.0",
+        "transformers": "5.15.0",
+        "peft": "0.21.2",
+        "bitsandbytes": "0.50.2",
+        "tokenizers": "0.22.2",
+        "huggingface-hub": "1.33.0"
+      },
+      "torch_version_source_sha256": "6feda231420514c053c7116e00e36d3313d6708aa1ab2a93dfa07ad4e5735184"
+    },
+    "model_scope": "completed Small 1c/2c/3c SFT only; no baseline substitution",
+    "checkpoint_format": "native_Torch_ZIP_only",
+    "archived_checkpoints_supported": false,
+    "parameter_dtype_policy": "preserved native checkpoint dtypes; full 2c/3c language and projector FP32",
+    "legacy_or_mixed_resume_allowed": false,
+    "custom_kernels": false
+  },
+  "parent_READY_sha256": "71a5752032342765483ea20fe70b7a5bc973341ecec9077dde5d35a1359794e5",
+  "namespace": "gate_controls_stock_p07_v1",
+  "test_command": "CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_research_gate_stock_evaluation.py",
+  "tests_passed": 21,
+  "test_seconds": 5.82,
+  "independent_review": {
+    "reviewer": "data_cache",
+    "status": "passed_source_only",
+    "scope": "same-stock reference/config/payload, preserved FP32 masters, private imports/observer, source/protocol/row fields and inherited guard/lifetime closure",
+    "tests_GPU_or_edits": false
+  },
+  "checks": {
+    "metadata_no_Torch_or_checkpoint_tensor_bodies": true,
+    "exact_legacy_and_mixed_profile_refusal": true,
+    "stock_before_constructor_and_generation": true,
+    "full_2c_3c_FP32_master_guard": true,
+    "private_native_observer_gold_projection": true,
+    "same_stock_original512_required_before_original_validator": true,
+    "inherited_gate_endpoints_and_scorers": true,
+    "new_namespace_protocol_row_source_and_profile_bindings": true,
+    "canonical_parent_sources_unchanged": true,
+    "raw_native_ZIP_only_archival_explicitly_refused": true
+  },
+  "metadata_plan": {
+    "path": "research_results/gate_stock_serial_metadata_plan_v1.json",
+    "sha256": "8268f323d72e9ef220174ed781b0cf82aab28923df95b5cd36084a85a7991823"
+  },
+  "actual_GPU_validated": false,
+  "actual_scientific_rows_generated": 0,
+  "service_launched": false,
+  "P06_complete": false,
+  "P07_complete": false,
+  "primary_completion_claim": false,
+  "limits": [
+    "Raw compacted completed Small 1c/2c/3c SFT only; archive-aware lineage/decoder-memory adapter remains a separate task.",
+    "Metadata does not certify checkpoint tensor contents, native512 completeness, RGB or learned64 generation; explicit full admission retains frozen parent audits.",
+    "CPU tests contain synthetic metadata/tiny gate fixtures, not model-quality evidence.",
+    "ROOT schedules exclusive GPU work; no deployment or service is authorized by this release."
+  ]
+}

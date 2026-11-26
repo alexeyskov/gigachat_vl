@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "owner": "full512_parallel_b1_current1b_text_boundary_v1",
+  "status": "passed",
+  "created_at": "2026-11-22T08:51:01.992035+00:00",
+  "tests_passed": 127,
+  "new_coordinator_tests_passed": 67,
+  "test_result": "127 passed in4.52s (67coordinator+60reused; actual CPU fresh-exec/PDeath tests; final CLI3 seal present)",
+  "test_command": "CUDA_VISIBLE_DEVICES='' python -m pytest -q tests/test_research_parallel_full_boundary.py tests/test_research_batch4_boundary.py tests/test_research_parallel_b1_boundary.py",
+  "source_sha256": {
+    "scripts/eval_research_parallel_b1_at_boundary.py": "46b96d90dc6d63b812042fc89016ba2fc0bb3cb5b575a5b4423b2d1644a3e99d",
+    "tests/test_research_parallel_full_boundary.py": "2c3827251b131284b6c32580548d00030f5320ecf0a6139495baef409fdafcc3",
+    "scripts/eval_research_batch4_at_boundary.py": "d463c01343ac5aec9e13d5408beae4efd00426f139650fd1c0907cb17b3fd6ac",
+    "scripts/probe_parallel_b1_at_boundary.py": "5f8cb00fc3b241b182f257cf52d0eaa31861d73a1c230bf9698b2f7d98f8c731",
+    "scripts/handoff_research_grounding.py": "7d8fa00fcd680eb7666c2ce4e643e102a47ede73901e19275cd028a74cf10ac4",
+    "scripts/probe_research_batch_at_boundary.py": "c7c18bba8a18380bbd080343b5ebb8f6fc4c149c96ff64eaa36c32938fdda2d1",
+    "scripts/probe_research_parallel_b1.py": "2c8de92e9e88ce8abc21847bfcaa1a816c0a8226c42fe6f83d6b4be02a8bf051",
+    "scripts/research_queue.py": "446d928181aba5f77d7e02692279741eb10d8fc3d3409af985e07d9239263bda",
+    "scripts/research_grounding_queue.py": "b99dfd413edd4176288734262197a72b3df4720e01d562e4b76f625b70d0a1d9",
+    "scripts/eval_research_checkpoint_batch4.py": "2a4b00571a52b7a831c03709e36e2118e3268e07f3c26c3180ec4624c6753f7a",
+    "src/eval/research_batch_inference.py": "b661b4008abf58feee19349a80403b3f532d467ed550367d9c1538fb7e45510c",
+    "src/eval/research_ablation.py": "09af2b73d5694996eaeb5909e7bf363b52da320c68fd7f358adcea2c79928348",
+    "src/utils/research_checkpoint_compat.py": "4dcf5c73f8e719d8a995f2578fb65be9e6fca48ad80705cb95028ed2bc3141b6",
+    "src/utils/research_storage.py": "ad67bd545ee86076dab713c5316e85dcede65147ea96e9f778ba25a5fc1894b3"
+  },
+  "checks": {
+    "exact_current_child_no_retarget": true,
+    "source_target_contexts_separately_frozen": true,
+    "completed512_before_controller_stop": true,
+    "pid_birth_argv_and_pause_intent_bound": true,
+    "natural_child_exit_idle_gpu_only": true,
+    "watchdog_crash_deadline_owned_cont": true,
+    "finally_cont_on_all_failures": true,
+    "upstream_full512_ready_not_old32": true,
+    "raw512_cpu_result_revalidation": true,
+    "no_implicit_worker_retry": true,
+    "fresh_exec_gateway_no_fork_callback": true,
+    "parent_death_and_pid_persist_gap_guarded": true,
+    "monotonic_watchdog_deadline": true,
+    "initial_and_live_worker_identity_bound": true,
+    "explicit_future1a_shuffle_after_gpu_replay_only": true,
+    "bounded_exec_startup_empty_proc_only": true,
+    "real_cpu_gateway_exec_and_parent_death_tested": true,
+    "explicit1a_blank_separate_receipt": true,
+    "explicit1a_text_only_separate_receipt": true,
+    "explicit_future1c_shuffle_after_gpu_replay_only": true,
+    "target_recipe_explicit_mapping_no_auto_retarget": true,
+    "exact_upstream_CLI3_ready_sha_bound": true
+  },
+  "additional_checks": {
+    "explicit_future1a_training_ordinary_replay_wait": true,
+    "future1a_first_shuffle_pid_bound_once": true,
+    "independent_watchdog_ready_before_stop": true,
+    "watchdog_ready_pid_reuse_refused": true,
+    "readiness_old32_scope_rejected": true,
+    "no_python_preexec_after_torch_import": true,
+    "fresh_exec_gateway_arms_parent_death_before_exec": true,
+    "coordinator_death_before_or_after_arm_refused": true,
+    "self_registered_worker_orphan_pid_persist_gap_recovered": true,
+    "backwards_wallclock_does_not_extend_lease": true,
+    "spawn_and_poll_birth_argv_ppid_checked": true,
+    "unbound_post_replay_grounding_prefix_waits": true,
+    "exact_prespawn_shuffle_command_waits_without_pid": true,
+    "present_malformed_pid_not_waited": true,
+    "bound_pid_never_returns_to_prebinding_wait": true,
+    "later_blank_text_only_still_missed": true,
+    "startup_proc_none_empty_argv_bounded15s": true,
+    "raw_proc_birth_ppid_bound_before_ready": true,
+    "nonempty_foreign_argv_never_tolerated": true,
+    "final_cli_argv_and_nonce_handshake_required": true,
+    "real_cpu_torch_parent_fresh_gateway_exec": true,
+    "real_cpu_kernel_parent_death_after_exec": true,
+    "failed_shuffle_receipt_not_reused_for_blank": true,
+    "explicit1a_text_only_uses_separate_receipt": true,
+    "completed_text_only_never_retargets_later_training": true,
+    "malformed_text_only_pid_refused": true,
+    "explicit_future1c_training_ordinary_replay_and_prespawn_wait": true,
+    "future1c_first_shuffle_PID_binds_once": true,
+    "malformed_PID_late_blank_text_only_and_reused_birth_refused": true,
+    "explicit_target_recipe_mapping_used_in_contexts_and_receipt": true,
+    "known_between_prior_job_and_target_spawn_gap_waits": true,
+    "failed_prior_or_started_later_job_never_waited_as_unstarted": true,
+    "exact_upstream_READY_hash_rejects_older_or_changed_CLI_even_if_generic_checks_pass": true
+  },
+  "maximum_pause_seconds": 1000,
+  "nested_worker_timeout_seconds": 800,
+  "worker_counts": [
+    2,
+    4
+  ],
+  "source_job": "smallthinker4__siglip2__4q__SFT_pilot_scienceqa_context_v2_balanced_s42",
+  "default_target": {
+    "job": "smallthinker4__siglip2__1b__SFT_pilot_scienceqa_context_v2_balanced_s42",
+    "variant": "text_only",
+    "pid": 56812,
+    "missed_disposition": "SKIP"
+  },
+  "explicit_future_target": {
+    "job": "smallthinker4__siglip2__1c__SFT_pilot_scienceqa_context_v2_balanced_s42",
+    "recipe": "1c",
+    "variant": "shuffle",
+    "workers": 4,
+    "controller_pid": 44472,
+    "pid_binding": "first exact live native shuffle evaluator after SFT ordinary512 and best/last GPU replay, then immutable",
+    "receipt": "research_results/parallel_b1_full_boundary_1c_shuffle_w4.json",
+    "missed_disposition": "SKIP; no automatic fallback"
+  },
+  "actual_gpu_validated": false,
+  "service_launched_by_this_agent": false,
+  "upstream_full_ready_required": "configs/research/parallel_b1_full_evaluator_ready.json",
+  "upstream_full_readiness_sha256": "5b4770e95ada02e50192ad619bb54d5f6f5a41138180bde5c86c7928e6e52db0",
+  "gateway_contract": "Freshinterpreter --exec-worker validates ownreceipt/coordinatorPIDbirth/argv/boot/PPID, armsPDeath and rechecks beforeos.execv fixedCLI; samePID/PPID, durableworkerhandshake. Popen hasno preexec_fn.",
+  "previous_skipped_receipt_preserved": "research_results/parallel_b1_full_boundary_prebind_fix/previous_skipped_1a_shuffle_w4.json",
+  "prebinding_fix_scope": "Only explicit1a/shuffle with expected=None waits through recognized first-grounding and exact pre-Popen receipt states; no retargeting or malformed-PID relaxation.",
+  "startup_guard_contract": "Popen PID durably saved; bind same birth/PPID from rawstat if cmdline unavailable; only unavailable/empty argv tolerated within15s while live; require nonce registration plus observed finalCLI argv; reject foreign nonempty argv or changed birth/PPID immediately.",
+  "previous_failed_spawn_preserved": "research_results/parallel_b1_full_boundary_startup_fix/previous_parallel_b1_full_boundary_1a_shuffle_w4.json",
+  "revision": 4,
+  "explicit_additional_targets": [
+    {
+      "job": "smallthinker4__siglip2__1a__SFT_pilot_scienceqa_context_v2_balanced_s42",
+      "variant": "blank",
+      "pid_binding": "first exact live blank child; separate receipt; explicit root choice only"
+    },
+    {
+      "job": "smallthinker4__siglip2__1a__SFT_pilot_scienceqa_context_v2_balanced_s42",
+      "variant": "text_only",
+      "pid_binding": "first exact live text_only child; separate receipt; explicit root choice only"
+    }
+  ],
+  "upstream_binding_status": "evaluator v2 sealed,189CPU tests; actual GPU full512 proof pending",
+  "preserved_prior_revision": "research_results/parallel_b1_full_boundary_text_only_revision/source_index.json",
+  "upstream_readiness_version": 3,
+  "explicit_target_recipes": {
+    "smallthinker4__siglip2__1b__SFT_pilot_scienceqa_context_v2_balanced_s42": "1b",
+    "smallthinker4__siglip2__1a__SFT_pilot_scienceqa_context_v2_balanced_s42": "1a",
+    "smallthinker4__siglip2__1c__SFT_pilot_scienceqa_context_v2_balanced_s42": "1c"
+  },
+  "explicit_target_variants": {
+    "smallthinker4__siglip2__1b__SFT_pilot_scienceqa_context_v2_balanced_s42": [
+      "text_only"
+    ],
+    "smallthinker4__siglip2__1a__SFT_pilot_scienceqa_context_v2_balanced_s42": [
+      "shuffle",
+      "blank",
+      "text_only"
+    ],
+    "smallthinker4__siglip2__1c__SFT_pilot_scienceqa_context_v2_balanced_s42": [
+      "shuffle"
+    ]
+  },
+  "previous_root114_and_failed1a_text_receipt_archive": "research_results/parallel_b1_full_boundary_future1c_revision/source_index.json",
+  "timing_expectation_from_ROOT": {
+    "standby_may_bind_shuffle_PID_approximately": "09:30UTC",
+    "proof_starts_only_after_shuffle_512_completed_approximately": "09:45\u201309:50UTC",
+    "ETA_is_estimate_not_guard": true
+  }
+}

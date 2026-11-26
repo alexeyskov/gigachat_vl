@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "status": "passed",
+  "ready": true,
+  "created_at": "2026-11-22T02:57:38.073465+00:00",
+  "source_sha256": {
+    "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+    "tests/test_research_runner.py": "64484fb79e550e1b62238f1486da4b34d83f896748ffb3dbc4a5e2f06c0e71e2",
+    "scripts/validate_research_checkpoint.py": "5fb59747dad1badb376e5cc95aa4f9551e35556a24067d1bf182c89140ee9626",
+    "tests/test_validate_research_checkpoint.py": "1166564a1958e95f21039efa86bb96cf0b3f0ffa460251e92b8ae4b99479527a",
+    "src/eval/research_selection.py": "91c05924df717ce46ef22787dfa5b4b0e45e35533096769373be62ceda3cade2",
+    "tests/test_research_selection.py": "0f1c9d04e8a80b11e1d1071cd2a7f6be77c63c0a954f437d8e5713f2797b9ddd"
+  },
+  "checks": {
+    "weighted_largebatch_gradient_equivalence": true,
+    "weighted_oom_retry_equivalence": true,
+    "weighted_legacy_default_resume": true,
+    "weighted_missing_stream": true,
+    "schema2_system_prompt": true
+  },
+  "test_command": "python -m pytest tests/test_research_runner.py tests/test_validate_research_checkpoint.py tests/test_research_selection.py tests/test_research_bundle_integration.py tests/test_research_checkpoint_compat.py tests/test_research_checkpoint_io.py -q",
+  "tests_passed": 89,
+  "subtests_passed": 36,
+  "tests_skipped": 1,
+  "test_result": "89 passed, 1 skipped, 36 subtests passed in 8.32s",
+  "objective": {
+    "profile": "fixed_stream_weights_global_token_denominators",
+    "formula": "(1-w)*sum(multimodal_ce)/N_multimodal + w*sum(text_only_ce)/N_text_only",
+    "denominator_scope": "whole logical effective batch",
+    "missing_stream_policy": "zero_contribution_no_weight_renormalization",
+    "default_none": "legacy joint supervised-token CE unchanged",
+    "scope": "SFT only"
+  },
+  "oom_protocol": {
+    "rollback": "Python, NumPy, Torch CPU and initialized CUDA RNG restored before retry; partial gradients cleared",
+    "active_microbatch": "saved and restored; missing legacy value defaults to configured batch size"
+  },
+  "independent_review": "research_results/weighted_sft_independent_review.json",
+  "named_test_evidence": {
+    "weighted_largebatch_gradient_equivalence": "TestWeightedEffectiveBatch.test_weighted_accumulation_matches_explicit_large_batch_with_unequal_lengths",
+    "weighted_oom_retry_equivalence": [
+      "TestWeightedEffectiveBatch.test_forward_and_backward_oom_retry_preserve_whole_effective_denominators",
+      "TestWeightedEffectiveBatch.test_oom_retry_restores_all_rng_streams_before_smaller_profile",
+      "TestResearchRunnerStages.test_resume_keeps_reduced_microbatch_after_interrupted_logical_step"
+    ],
+    "weighted_legacy_default_resume": [
+      "TestResearchRunnerConfiguration.test_text_weight_is_optional_sft_only_and_legacy_default_is_none",
+      "TestResearchRunnerStages.test_legacy_completed_resume_adopts_question_only_schema_without_new_option_drift"
+    ],
+    "weighted_missing_stream": "TestWeightedEffectiveBatch.test_missing_stream_keeps_fixed_coefficient_without_renormalization",
+    "schema2_system_prompt": "TestResearchPromptMessages.test_system_instruction_retained_and_gold_only_in_full_target"
+  }
+}

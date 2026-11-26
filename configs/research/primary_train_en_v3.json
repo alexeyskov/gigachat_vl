@@ -1,0 +1,133 @@
+{
+  "A0_repeat_cap": 1,
+  "A0_train_exposures": 200000,
+  "A0_unique_canonical_RGB_images": 200000,
+  "A1_additional_unique_images": 0,
+  "A1_repeat_cap_within_stage": 1,
+  "A1_source": "deterministic 10K subset of A0 TRAIN, same across all11 branches",
+  "A1_train_exposures": 10000,
+  "GPU_training_authorized": false,
+  "LLaVA_unit": "one verified original ordered dialogue, uniform unit mass; cyclic eligible target turn chosen by fixed hashed phase",
+  "actual_eligible_pool_counts_known": false,
+  "actual_primary_source_audits_executed": false,
+  "complete_external_A0_text_raw_content_graph_receipt_required": true,
+  "data_sampling_requires_source_registry_sha256": true,
+  "data_seed": 42,
+  "eligibility_receipt_requires_actual_external_audit_file_verification": true,
+  "external_immutable_audit_files_verified": false,
+  "frozen_pilot_or_runtime_modified": false,
+  "global_emitted_target_dedup_before_source_quota": true,
+  "groups": {
+    "general_vqa": {
+      "sources": [
+        "vqav2",
+        "gqa",
+        "llava_instruct"
+      ]
+    },
+    "ocr_documents": {
+      "sources": [
+        "textvqa",
+        "docvqa",
+        "infographic_vqa"
+      ]
+    },
+    "charts_diagrams": {
+      "sources": [
+        "chartqa",
+        "ai2d"
+      ]
+    },
+    "knowledge_reasoning": {
+      "sources": [
+        "aokvqa",
+        "scienceqa"
+      ]
+    }
+  },
+  "internal_validation_component_basis_points": 200,
+  "model_seeds_do_not_change_manifests": true,
+  "multimodal_repeat_cap_per_unit_per_epoch": 4,
+  "one_exposure": "one supervised target turn; verified dialogue preserves only genuine preceding history",
+  "other_VQA_unit": "one independent QA, never inherit sibling questions/answers",
+  "primary_manifest_exists": false,
+  "profile": "primary_train_en_v3_common_audited_capacity",
+  "refill": "scan pinned sources in fixed hash-ranked shard/row order; apply all audits first; allocate from actual eligible pools; fail on insufficient capacity",
+  "remaining_dialogue_targets_keep_full_original_prior_history": true,
+  "required_audits": [
+    "source_bytes_and_original_train_split_verified",
+    "language_english_passed",
+    "all_four_backbone_native_context_census_passed",
+    "record_and_conversation_dedup_passed",
+    "all_declared_heldout_RGB_and_source_ids_disjoint",
+    "all_official_heldout_coverage_complete",
+    "near_image_and_document_review_complete",
+    "all_15902_text_heldout_inputs_screened",
+    "document_and_dialogue_component_links_verified",
+    "licenses_and_source_lineage_reviewed"
+  ],
+  "schema_version": 1,
+  "sft_mm_train_exposures": 500000,
+  "sft_text_train_exposures": 88236,
+  "source_policy_revision_reason": "OfficialAOK TRAIN overlaps5950QA on5741COCO image IDs with all40504heldoutVQAv2validationIDs. RemainingAOK11106+optimisticoriginalScience6218=17324 units cap4=69296<75000 before2%split andotherfilters.",
+  "source_registry_and_joint_content_receipt_required": true,
+  "source_registry_path": "research_results/primary_source_registry_v4.json",
+  "source_registry_revision": 4,
+  "sources": [
+    "vqav2",
+    "llava_instruct",
+    "textvqa",
+    "docvqa",
+    "infographic_vqa",
+    "chartqa",
+    "ai2d",
+    "aokvqa",
+    "scienceqa",
+    "gqa",
+    "pixmo_repack",
+    "smoltalk"
+  ],
+  "status": "frozen_data_only_capacity_algorithm_actual_common_pool_pending",
+  "target_identity_rule": "canonical_RGB_ordered_context_target_NFKC_casefold_whitespace_v1",
+  "target_owner_rule": "seed42_hash_semantic_key_unit_id_original_turn_lexical_tie_v1",
+  "text_count_rule": "ceil(500000*15/85); record fraction rounded upward by <1 record",
+  "text_fraction": 0.150001019998776,
+  "text_repeat_cap": 1,
+  "unique_counts_required": [
+    "source parent rows",
+    "sampling units",
+    "dialogues",
+    "supervised target turns",
+    "RGB images",
+    "document components",
+    "exposures",
+    "repeated units",
+    "target tokens"
+  ],
+  "within_group_allocation": "largest remainder proportional to actual post-audit eligible sampling-unit counts; lexical source-ID remainder ties",
+  "group_budget_rule": {
+    "rule": "knowledge_min75000_floor_3x_common_audited_TRAIN_units_to1000_v1",
+    "unit_count_scope": "ONE common source pool AFTER all frozen audits AND seed42 joint-component2% TRAIN split",
+    "knowledge_reasoning": "min(75000, floor(3 * actual common audited TRAIN knowledge units / 1000) * 1000)",
+    "ocr_documents": 150000,
+    "charts_diagrams": 100000,
+    "general_vqa": "250000 - knowledge_reasoning",
+    "final_counts_frozen_before_ANY_PRIMARY_scores": true,
+    "same_final_manifests_all_backbones_donors_recipes": true,
+    "insufficient_group_or_source_capacity": "fail closed; never silently raise cap4, relabel synthetic descriptions as original QA or shrink500K"
+  },
+  "previous_frozen_target_context_protocol": "/workspace/gigachat_vl/src/dataset/research_primary_protocol_v2.py",
+  "previous_frozen_target_context_protocol_sha256": "a0ab330a1c7b29889fcc5819abdc5db0af129b1486fc884b8d098663472c03c7",
+  "actual_common_audited_pool_counts": null,
+  "actual_final_group_counts": null,
+  "final_primary_manifests_frozen": false,
+  "primary_ready": false,
+  "metadata_calculator_verifies_external_audit_files": false,
+  "common_pool_audit_files_must_be_verified_by_actual_preparer": true,
+  "all_target_context_dedup_document_graph_language_context_and_heldout_guards_unchanged": true,
+  "source_capacity_counterexample": {
+    "path": "/workspace/gigachat_vl/research_results/primary_sft_availability_v18/original_ID_knowledge_capacity_counterexample.json",
+    "bytes": 2953,
+    "sha256": "d7ab925dcba615e242a608ea55f255c78aac60a2fe32041586da6dbb6f08f41c"
+  }
+}

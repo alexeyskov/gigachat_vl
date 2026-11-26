@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "tests_passed": 72,
+  "subtests_passed": 3,
+  "test_command": "CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 /venv/main/bin/python -m pytest -q tests/test_research_grounding_queue.py tests/test_research_queue.py tests/test_research_ablation.py tests/test_validate_research_checkpoint.py",
+  "source_sha256": {
+    "scripts/research_grounding_queue.py": "b99dfd413edd4176288734262197a72b3df4720e01d562e4b76f625b70d0a1d9",
+    "tests/test_research_grounding_queue.py": "0ac39f8a46a471bf4d4abac1352f93bca33a771b6089fdf4868eb300f60101cb",
+    "scripts/research_queue.py": "2a5973321a0d431b1fb84e8930f8ba1bb9e5b46c29cf90eb9dd86745362a72a9",
+    "scripts/eval_research_checkpoint.py": "cf06fcf7ba5c2be4860d58781478de7b51a101c21a4bc8cd95ebb333220baff2",
+    "src/eval/research_ablation.py": "09af2b73d5694996eaeb5909e7bf363b52da320c68fd7f358adcea2c79928348",
+    "src/eval/research_metrics.py": "440424ed720dbf17fce9a12ccb4ec6565f30298c6c40e9b47fd0ab60a8ed6844",
+    "src/eval/research_inference.py": "47576ba901c5e6ba3dc95b8c8777872d36c3ea73f2a4e0c6d74a0955df75744d",
+    "src/utils/research_checkpoint_compat.py": "4dcf5c73f8e719d8a995f2578fb65be9e6fca48ad80705cb95028ed2bc3141b6",
+    "src/utils/research_checkpoint_bundle.py": "1a485653f82f919507fdf6e6bb30965e33c8e883cd034b243391362ebf98df8c",
+    "src/utils/research_checkpoint_io.py": "931cd9dd05259fc347c6ec4adef74dda6ba3fc9dfe0aa837f90ef52694f667c9",
+    "src/utils/research_storage.py": "ad67bd545ee86076dab713c5316e85dcede65147ea96e9f778ba25a5fc1894b3",
+    "tests/test_research_queue.py": "65a7b34e7513675c7683217ce718ba4c792959765b3a0742ad1f4e3e4a0697f8",
+    "tests/test_research_ablation.py": "ca68387582651a18c6d1eb294f1d509e2c9309b68101d2e40174b2dd753beb0d",
+    "scripts/validate_research_checkpoint.py": "5fb59747dad1badb376e5cc95aa4f9551e35556a24067d1bf182c89140ee9626",
+    "tests/test_validate_research_checkpoint.py": "1166564a1958e95f21039efa86bb96cf0b3f0ffa460251e92b8ae4b99479527a"
+  },
+  "checks": {
+    "standard_none_unchanged": true,
+    "raw_transformed_and_checkpoint_binding": true,
+    "interrupted_eval_resume_no_retrain": true,
+    "distinct_variant_outputs": true,
+    "disk_and_signal_guards": true,
+    "prelaunch_signal_during_cpu_transform_stops_before_new_worker": true,
+    "checkpoint_full_gpu_replay_required": true,
+    "checkpoint_roundtrip_reuse_binds_both_best_last": true,
+    "checkpoint_validation_failure_resume_no_retrain": true,
+    "selection_source_file_and_sampled_records_hashes_distinguished": true,
+    "selection_record_count_reconstructed_exactly": true
+  },
+  "fixed_modes": [
+    "shuffle",
+    "blank",
+    "text_only"
+  ],
+  "evaluation_records": 512,
+  "checkpoint": "best",
+  "max_new_tokens": 64,
+  "seed": 42,
+  "state_contract": {
+    "status_running": "grounding_evaluating",
+    "variant_key": "active_grounding_variant",
+    "variant_receipts": "grounding_evaluations",
+    "failure_status": "training_completed_grounding_failed",
+    "interrupted_status": "training_completed_grounding_interrupted",
+    "checkpoint_running_status": "checkpoint_validating",
+    "checkpoint_receipt_key": "checkpoint_validation",
+    "checkpoint_failure_status": "training_completed_checkpoint_validation_failed",
+    "checkpoint_interrupted_status": "training_completed_checkpoint_validation_interrupted"
+  },
+  "additional_full_evaluation_passes_per_sft": 3,
+  "paired_bootstrap_replicates": 1000,
+  "tiny_actual_cpu_inference": {
+    "all_three_variants": true,
+    "native_model": "one-layer actual SmallThinker",
+    "generation_tokens": 64,
+    "resume_keeps_first_two_appended_predictions": true,
+    "completed_resume_loads_no_model": true,
+    "pretrained_full_checkpoint_or_GPU_claim": false
+  },
+  "services_launched": false,
+  "created_unix": 1795322374.6659148,
+  "readiness_version": 3,
+  "warnings_count": 3,
+  "checkpoint_validation": {
+    "mode": "full_gpu_replay",
+    "device": "cuda",
+    "retained_objects": "both unique managed best/last",
+    "required_replay": "internal_teacher_reference_group_macro",
+    "restored_tensor_max_abs_diff_required": 0.0,
+    "projector_frozen_and_unchanged_required": true,
+    "report": "checkpoint_roundtrip.json",
+    "stale_or_cpu_only_report_is_not_a_pass": true,
+    "existing_validator_source_unchanged": true,
+    "pipeline_order": [
+      "ordinary_none_evaluation",
+      "full_checkpoint_validation",
+      "shuffle",
+      "blank",
+      "text_only"
+    ],
+    "actual_new_large_GPU_validation_launched_during_implementation": false
+  },
+  "final_source_targeted_regression": {
+    "command": "CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 /venv/main/bin/python -m pytest -q tests/test_research_grounding_queue.py",
+    "tests_passed": 34
+  },
+  "actual_current_gpu_replay_receipt_revalidation": {
+    "report": "research_results/checkpoint_selection_receipt_fix.json",
+    "sha256": "a75aae1074172d3814c42c56994a5633ca800072915511cb729aa325cedd7e4b",
+    "passed": true,
+    "validated_tensor_count": 12808,
+    "training_updates_repeated": 0
+  }
+}

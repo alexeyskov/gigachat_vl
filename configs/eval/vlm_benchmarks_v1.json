@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "harness": {"repository": "https://github.com/open-compass/VLMEvalKit", "revision": "ed3e918edf4a62e0bf42a2768655e02d45312fef", "path": "third_party/VLMEvalKit"},
+  "papers": {
+    "qwen25": "https://arxiv.org/html/2502.13923v1",
+    "internvl3": "https://arxiv.org/html/2504.10479v1",
+    "qwen3": "https://arxiv.org/html/2511.21631v1"
+  },
+  "suites": {
+    "core": ["MMMU_DEV_VAL", "MMBench_DEV_EN_V11", "MMStar", "AI2D_TEST", "RealWorldQA", "POPE"],
+    "ocr": ["OCRBench", "TextVQA_VAL", "DocVQA_VAL", "InfoVQA_VAL", "ChartQA_TEST"],
+    "reasoning": ["MMMU_DEV_VAL", "MMMU_Pro_10c", "MathVista_MINI"],
+    "hallucination": ["POPE", "HallusionBench", "MME"]
+  },
+  "datasets": [
+    {"name":"MMMU_DEV_VAL","domain":"multidiscipline reasoning","split":"dev+validation, public labels","metric":"VLMEvalKit MMMU accuracy","multi_image":true,"judge_required":false,"papers":["qwen25","internvl3","qwen3"]},
+    {"name":"MMMU_Pro_10c","domain":"robust multidiscipline reasoning","split":"standard ten-choice public evaluation","metric":"VLMEvalKit MMMU-Pro accuracy","multi_image":true,"judge_required":false,"papers":["qwen25","qwen3"]},
+    {"name":"MMBench_DEV_EN_V11","domain":"general visual understanding","split":"English v1.1 dev, public labels; not leaderboard test","metric":"VLMEvalKit circular MCQ accuracy","multi_image":false,"judge_required":false,"papers":["internvl3"]},
+    {"name":"MMStar","domain":"general visual understanding","split":"public evaluation","metric":"VLMEvalKit MCQ accuracy","multi_image":false,"judge_required":false,"papers":["qwen25","internvl3"]},
+    {"name":"MME","domain":"perception and cognition","split":"public paired evaluation","metric":"VLMEvalKit MME category scores (accuracy + accuracy-plus)","multi_image":false,"judge_required":false,"paired":true,"papers":["qwen25","internvl3"]},
+    {"name":"MMVet","domain":"integrated visual capabilities","split":"public evaluation","metric":"VLMEvalKit MM-Vet LLM-judge score","multi_image":false,"judge_required":true,"papers":["qwen25","internvl3"]},
+    {"name":"MathVista_MINI","domain":"visual mathematical reasoning","split":"official testmini, 1000 items","metric":"VLMEvalKit MathVista extraction + normalized accuracy","multi_image":false,"judge_required":true,"papers":["qwen25","internvl3","qwen3"]},
+    {"name":"OCRBench","domain":"OCR and document understanding","split":"original OCRBench public evaluation","metric":"VLMEvalKit original OCRBench category counts and total /1000","multi_image":false,"judge_required":false,"papers":["qwen25","internvl3","qwen3"]},
+    {"name":"TextVQA_VAL","domain":"scene text VQA","split":"validation","metric":"VLMEvalKit VQA human-consensus accuracy","multi_image":false,"judge_required":false,"papers":["qwen25","internvl3"]},
+    {"name":"DocVQA_VAL","domain":"documents","split":"validation, public labels","metric":"VLMEvalKit ANLS","multi_image":false,"judge_required":false,"papers":["qwen25","internvl3","qwen3"]},
+    {"name":"InfoVQA_VAL","domain":"infographics","split":"validation, public labels","metric":"VLMEvalKit ANLS","multi_image":false,"judge_required":false,"papers":["qwen25","internvl3","qwen3"]},
+    {"name":"ChartQA_TEST","domain":"charts","split":"test, public labels","metric":"VLMEvalKit relaxed numeric accuracy","multi_image":false,"judge_required":false,"papers":["qwen25","internvl3","qwen3"]},
+    {"name":"AI2D_TEST","domain":"diagrams","split":"test; pinned AI2D_TEST preset","metric":"VLMEvalKit MCQ accuracy","multi_image":false,"judge_required":false,"papers":["qwen25","internvl3"]},
+    {"name":"RealWorldQA","domain":"real-world spatial understanding","split":"public evaluation","metric":"VLMEvalKit MCQ accuracy","multi_image":false,"judge_required":false,"papers":["qwen25","internvl3"]},
+    {"name":"POPE","domain":"object hallucination","split":"public evaluation","metric":"VLMEvalKit precision, recall, F1 and yes/no accuracy","multi_image":false,"judge_required":false,"papers":["internvl3"]},
+    {"name":"HallusionBench","domain":"hallucination and consistency","split":"public grouped evaluation","metric":"VLMEvalKit answer/figure/question-level consistency accuracy","multi_image":false,"judge_required":false,"paired":true,"papers":["qwen25","internvl3"]}
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "owner": "research_budget18_training_first_v6",
+  "status": "passed",
+  "source_sha256": "4f233fd6ebfd54207c67cb54b057b7794defa75d0224f1fe42879cf744d75ac6",
+  "resource_ready": {
+    "path": "configs/research/budget18_resource_v6_ready.json",
+    "sha256": "40658d61391b5451a4fd7ccb5202cdb1787e2970998048e2ae7f54a7b0461817",
+    "bytes": 24298
+  },
+  "evidence": {
+    "CPU_tests": {
+      "path": "research_results/budget18_qwen_nonfinite_gradient_v1/cpu_tests.log",
+      "sha256": "477c614f4247ded4d1e2fc622ec2752e4c3bc56e5653e6ffee8be47c40c37d93",
+      "bytes": 750
+    },
+    "CPU_preflight": {
+      "path": "research_results/budget18_qwen_nonfinite_gradient_v1/preflight.json",
+      "sha256": "5581e082c2a429175e755acff78bc4b0cf68b19c64b805c1ec1db9d290b9ab47",
+      "bytes": 1861
+    },
+    "actual_GPU_regression": {
+      "path": "runs/research/diagnostic_small_qwen_router_fix_v1/proof.json",
+      "sha256": "7e29065ceb59a76fa02e3df2675fdf0fd8c7b9b0c2203564de84e9529ab8a411",
+      "bytes": 1881
+    },
+    "failed_attempt_preserved": {
+      "path": "research_results/budget18_qwen_nonfinite_gradient_v1/failed_primary_archived.json",
+      "sha256": "176024038b271c060d4175b809140236d095cecd2b215a279e815d9af61e99a2",
+      "bytes": 1728
+    }
+  },
+  "training_stages": 42,
+  "scientific_cells": 18,
+  "external_four_view_evaluation_preserved": true
+}

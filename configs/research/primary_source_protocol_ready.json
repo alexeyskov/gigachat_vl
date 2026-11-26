@@ -1,0 +1,58 @@
+{
+  "additional_metadata_cap_bytes": 20971520,
+  "artifacts": {
+    "configs/research/primary_train_en_v1.json": "066d86510961d91e62e2e3ef0001e4701e627a6444f8cd7e7c0aad40c040b6aa",
+    "research_results/primary_source_inventory/evidence_v1/evidence.json": "969511ffd797001b3b80a36751bdd3e5e1bf9e91edfbbc9b47cdfb0790a5d040",
+    "research_results/primary_source_inventory/registry_v1_review_archive/preservation.json": "d38e57cc0300afda0360ab1ab3ea6963c83e77589b3c981597492dfb6cbd764d",
+    "research_results/primary_source_registry_v2.json": "c9efdeac496a7eacdaad528985ba02a0f02bd7be3783f578a0aaab7af2c53ecd",
+    "research_results/primary_source_registry_validation_v2.json": "d9d7b14eef6d98ff077f42c54b770b29f676a7442a6890e8132f74f162f8f0cf"
+  },
+  "bounded_metadata_content_bytes": 2957887,
+  "checks": {
+    "A0200K_A110K_MM500K_text88236_explicit": true,
+    "ScienceQA6149_cap4_equal_quota_impossibility_verified": true,
+    "all9FineVision_aliases_and_direct_GQA_registered": true,
+    "all_required_heldout_language_context_doc_audits_pending_and_blocking": true,
+    "cap4_and_all_source_coverage_fail_closed": true,
+    "data_seed_integer42_and_2percent_split_fixed": true,
+    "duplicate_unit_and_normalized_content_keys_refused": true,
+    "exact_pinned_footer_ranges_retained_and_reparsed": true,
+    "global_components_before_split_and_flatten": true,
+    "group_35_30_20_15_with_eligible_pool_proportional_source_quota": true,
+    "independent_QA_no_sibling_history": true,
+    "named_GQA_absence_only_not_mixed_content_certification": true,
+    "no_GPU_or_services_launched": true,
+    "no_image_bodies_large_shards_or_model_weights_downloaded": true,
+    "numerical_group_budget_configuration_byte_identical": true,
+    "v1_source_and_evidence_snapshot_preserved": true,
+    "verified_LLaVA_uniform_dialogue_one_target_turn_per_exposure": true
+  },
+  "known_gaps": [
+    "actual eligible source pools unknown",
+    "English/context/dedup/source/heldout audit receipts not executed",
+    "original document and LLaVA dialogue linkage pending",
+    "all official heldout split coverage incomplete",
+    "source licensing/constituent lineage incomplete",
+    "primary storage forecast/admission not completed"
+  ],
+  "primary_P01_complete": false,
+  "primary_P02_complete": false,
+  "primary_manifest_exists": false,
+  "primary_training_authorized": false,
+  "profile": "primary_train_en_v1_pool_proportional",
+  "schema_version": 1,
+  "source_registry_revision": 2,
+  "source_sha256": {
+    "configs/research/primary_sampling_unit.schema.json": "4b8100cf9e034aa468d99d28dc36d2677abd65b6aead2df1c53140ef998d9047",
+    "research_results/collect_primary_source_evidence.py": "e852fce7d98863039790d6354be4c9dfcf57aeaaca6632299de73e8eb318914b",
+    "research_results/primary_source_registry_v2.md": "742b3761064d1b4cd7ee89208fa7f35e6eead2fbcac7909e8eeedbefec503caa",
+    "research_results/validate_primary_source_registry_v2.py": "eccb7c0604e9d962c2ba93a42303905d63ca70b23ce752e510ac2176f2f962d3",
+    "scripts/prepare_research_primary_registry.py": "80a20a62f229787613ae8eabda66fd016f61a4a74af57de03b70dd41b86d7b5f",
+    "src/dataset/research_primary_protocol.py": "3f33083610382bb4d0ce9f72ab91010ad34267a0d88d1c808275ac7aa8bd8eb4",
+    "tests/test_research_primary_protocol.py": "9036063b366651e306155ac026e159e982f779e9556a62a0f0ef8393e62c11b4"
+  },
+  "status": "passed_protocol_only",
+  "test_command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /venv/main/bin/python -m pytest -q tests/test_research_primary_protocol.py",
+  "test_log_sha256": "5fc4e88642ca0cf99ce1b1155ffd20642f488f43a0af14d1940531cd77757eea",
+  "tests_passed": 32
+}

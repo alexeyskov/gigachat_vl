@@ -6,6 +6,77 @@
 .vscode
 .codex
 
+# Local datasets, downloaded models, feature caches and experiment outputs.
+/datasets/
+/models/
+/cache/
+/runs/
+/logs/
+/checkpoints/
+/outputs/
+/artifacts/
+/exports/
+
+# Research outputs are backed up with sync.sh, not committed to Git.
+# Keep the pinned model registry and dependency lock used by the research code.
+/research_results/*
+!/research_results/model_inventory.json
+!/research_results/environment.lock.txt
+
+# Generated queue state / locks; keep experiment plans and readiness contracts.
+/configs/research/*.state.json
+/configs/research/*.lock
+/RESEARCH_STATUS.md
+/ADDITIVE_STATUS.md
+
+# Downloaded benchmark checkout. Curated third_party metric code stays versioned.
+/third_party/VLMEvalKit/
+
+# Copies downloaded with sync.sh when it is run inside the working tree.
+/experiment_results/
+/результаты_экспериментов/
+/gigachat_vl/
+.rsync-partial/
+
+# Machine-local model caches, training trackers and profiler output.
+.hf_home/
+.hf_cache/
+.huggingface/
+.torch/
+.triton/
+.ruff_cache/
+torch_compile_debug/
+wandb/
+mlruns/
+lightning_logs/
+tensorboard/
+events.out.tfevents.*
+*.prof
+*.nsys-rep
+*.ncu-rep
+
+# Model/checkpoint files accidentally saved outside the output directories.
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.gguf
+*.ggml
+*.onnx
+pytorch_model*.bin
+adapter_model*.bin
+
+# Interrupted downloads / temporary files and process bookkeeping.
+*.incomplete
+*.partial
+*.tmp
+*.temp
+*.pid
+*.pid.lock
+*.swp
+*.swo
+*~
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -129,6 +200,10 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
 .venv
 env/
 venv/

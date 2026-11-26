@@ -1,0 +1,8 @@
+{
+  "checkpoint_min_step": 200,
+  "required_audit_files": [
+    "datasets/research/pilot-en-scienceqa-disjoint-v1/audit.json",
+    "datasets/research/eval-scienceqa-full-overlap-v1/audit.json",
+    "configs/research/evaluation_hook_ready.json"
+  ]
+}

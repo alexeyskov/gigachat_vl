@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "owner": "ROOT",
+  "created_unix": 1795387019.7463567,
+  "scheduling": "training first, all four512views preserved for final pass",
+  "unchanged_scientific_cells": 18,
+  "unchanged_training_jobs": 42,
+  "tests_passed": 48,
+  "tests_seconds": 2.18,
+  "GPU_worker_engine": "scripts/research_budget18_queue_v4.py",
+  "GPU_worker_sha256": "c75e29bbd4b8e54dc2dba90408c074dc60a4fd1c3408d92357e8a76b225109f5",
+  "source_sha256": {
+    "scripts/research_budget18_queue_v5.py": "9209068c051465bdaa38a4da023de5853f3d7088bd6874e5973917684379383d",
+    "tests/test_research_budget18_queue_v5.py": "7a08013d9418fefe7d40f7d39f92ed315c1f89577c08254878618958f03c0523"
+  },
+  "retire_intermediates_only_after_completed_training_and_SFT_GPU_replay": true,
+  "previous_complete_evaluations_or_tensor_bytes_overwritten": false
+}

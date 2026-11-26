@@ -1,0 +1,19 @@
+{
+  "owner": "research_budget18_training_first_v7",
+  "status": "passed",
+  "source_sha256": "a7973c20707ee4fc81d53d80ec432387f8fd3cab34fdf25f6dc2ac042f6f57f1",
+  "resource_ready": {
+    "path": "configs/research/budget18_resource_v7_ready.json",
+    "sha256": "62a691c39d2db0e4314d8ef81ec3a5aaa707740b66079c8e541cd322709f4b1a"
+  },
+  "CPU_regressions_passed": 11,
+  "actual_GPU_replay": {
+    "path": "research_results/budget18_recovery_v7/actual_gpu_replay_passed.json",
+    "sha256": "b2f8ad0765c5c052bb83037146e735982c71445e6d4e96a3f9d4c64a8e263d1a",
+    "tensors": 216
+  },
+  "checkpoint_bytes_modified": false,
+  "completed_training_repeated": false,
+  "supervisor_autorestart": "unexpected",
+  "created_unix": 1795439074.0483902
+}

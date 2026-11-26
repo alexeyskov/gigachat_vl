@@ -1,0 +1,19 @@
+{
+  "status": "passed",
+  "owner": "ROOT",
+  "created_unix": 1795380518.7628715,
+  "change": "Validator actual argv omits unsupported --reserve-gb for all backends; train/eval argv, frozen model/data/resource profiles unchanged",
+  "original_controller_sha256": "d966c9ada107376331e19cb8752c116cafc107992ce99a8500e417920493b176",
+  "controller_sha256": "743ec816849e0ebcf8bc7a2166918ceb40958335c681d8910daeefef49f29e6f",
+  "test_result": "57 passed; exact native parser regression plus inherited queue tests",
+  "training_updates_repeated": 0,
+  "resource_ready": {
+    "path": "configs/research/budget18_resource_v3_ready.json",
+    "sha256": "95f9df2858b14eca039a9c19b65a6ca3d38f150645dafe606e954869f6f8f444"
+  },
+  "failed_worker_artifacts": "research_results/budget18_controller_v3_cli_fix",
+  "source_sha256": {
+    "scripts/research_budget18_queue_v3.py": "743ec816849e0ebcf8bc7a2166918ceb40958335c681d8910daeefef49f29e6f",
+    "tests/test_research_budget18_queue_v3.py": "743bfd711fb7f1fea3e518cbaa67b210f2765433c5e3a22087813df157acc9d3"
+  }
+}

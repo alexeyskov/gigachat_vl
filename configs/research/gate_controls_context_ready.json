@@ -1,0 +1,62 @@
+{
+  "P06_corpus_routing_complete": false,
+  "P07_complete": false,
+  "actual_gpu_validated": false,
+  "actual_scientific_predictions_created": false,
+  "checks": {
+    "actual_completed_checkpoint_preflight_run": false,
+    "actual_tiny_visual_generation_gold_independence": true,
+    "exact_zero_one_endpoints_both_input_output": true,
+    "exception_restoration_and_overlap_rejection": true,
+    "full512_journal_owner_implemented": false,
+    "gate_parameter_identity_pointer_version_bits_unchanged": true,
+    "learned_identity_native_logits_and_cached_generation": true,
+    "native_branch_formula_all_families_and_conditions": true,
+    "no_torch_metadata_import": true,
+    "packed_shared_and_unwrapped_paths_rejected": true,
+    "source_drift_rejected": true,
+    "strict_new_protocol_resume_binding": true
+  },
+  "conditions": [
+    "learned",
+    "all_open",
+    "visual_closed",
+    "text_closed",
+    "all_closed"
+  ],
+  "created_utc": "2026-11-22T09:44:54.655217+00:00",
+  "implementation_scope": "context registry, inference-only exact gate controls, provenance/resume protocol helpers, gold-free native observer, CPU-preflight CLI",
+  "independent_review": {
+    "agent": "data_cache",
+    "scope": "exact endpoint overrides, finally restoration, original parameter and method identity/rawbits, unsupported paths, learned identity and downstream-routing caveat",
+    "status": "passed_read_only",
+    "tests_or_GPU_run_by_reviewer": false
+  },
+  "limits": [
+    "CPU-preflight CLI creates no predictions and has no allow-gpu option.",
+    "A dedicated durable512-record evaluator journal is still required before any root-scheduled GPU evaluation.",
+    "Existing native gate diagnostics detach parameters and therefore report learned gates; applied intervention gates are recorded in the new control receipt.",
+    "Whole-model top-k is not fixed: modified expert outputs change downstream router inputs.",
+    "g^3 is the ideal biasless ReGLU expert-branch scaling, not a whole-model scaling law."
+  ],
+  "manifest_sha256": "9fcb6783de70f44a94505eefa4ee90eef5759319c1db59850bd351777f38f5f4",
+  "owner": "research_small_gate_control_p07_v1",
+  "primary_completion_claim": false,
+  "production_evaluator_enabled": false,
+  "schema_version": 1,
+  "source_sha256": {
+    "scripts/eval_research_gate_control.py": "65bc274ab0e125f821ef6335c4bd54d837c578f8280ac3b34ca32704abf47dfc",
+    "src/eval/research_gate_controls.py": "1171e75bf9792a4ce2487898d40d9666ed64384409a724b521ed4bd92484c7e0",
+    "tests/test_research_gate_controls.py": "3bcda134cbdaea7c452d16a7a447d5dab1a5d6ed7fd4b1c7ee47145854edbb63"
+  },
+  "status": "context_registry_tests_passed",
+  "supported_model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+  "supported_recipes": [
+    "1c",
+    "2c",
+    "3c"
+  ],
+  "test_command": "CUDA_VISIBLE_DEVICES='' python -m pytest -q tests/test_research_gate_controls.py",
+  "test_elapsed_seconds": 4.76,
+  "tests_passed": 49
+}

@@ -1,0 +1,26 @@
+{
+  "pid": 50652,
+  "start_time": 173832200,
+  "argv": [
+    "/venv/main/bin/python",
+    "-u",
+    "/workspace/gigachat_vl/scripts/eval_research_checkpoint.py",
+    "--run",
+    "/workspace/gigachat_vl/runs/research/smallthinker4__siglip2__1b__SFT_pilot_scienceqa_context_v2_balanced_s42",
+    "--manifest",
+    "/workspace/gigachat_vl/datasets/research/eval-heldout-v3/evaluation.jsonl",
+    "--output",
+    "/workspace/gigachat_vl/runs/research/smallthinker4__siglip2__1b__SFT_pilot_scienceqa_context_v2_balanced_s42/evaluation/grounding_v1/shuffle",
+    "--checkpoint",
+    "best",
+    "--max-new-tokens",
+    "64",
+    "--image-ablation",
+    "shuffle",
+    "--ablation-seed",
+    "42",
+    "--reserve-gb",
+    "120"
+  ],
+  "progress_path": "/workspace/gigachat_vl/runs/research/smallthinker4__siglip2__1b__SFT_pilot_scienceqa_context_v2_balanced_s42/evaluation/grounding_v1/shuffle/progress.json"
+}

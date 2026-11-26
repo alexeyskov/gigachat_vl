@@ -1,0 +1,330 @@
+[
+  {
+    "repo": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+    "sha": "a24932bb880c85c04c794283202a9194b1b42709",
+    "gated": false,
+    "bytes": 8551877938,
+    "files": [
+      {
+        "path": "config.json",
+        "bytes": 1686
+      },
+      {
+        "path": "generation_config.json",
+        "bytes": 143
+      },
+      {
+        "path": "model-00001-of-00002.safetensors",
+        "bytes": 4999721256
+      },
+      {
+        "path": "model-00002-of-00002.safetensors",
+        "bytes": 3537628448
+      },
+      {
+        "path": "model.safetensors.index.json",
+        "bytes": 319649
+      },
+      {
+        "path": "tokenizer.json",
+        "bytes": 11422654
+      },
+      {
+        "path": "tokenizer_config.json",
+        "bytes": 7269
+      },
+      {
+        "path": "vocab.json",
+        "bytes": 2776833
+      }
+    ]
+  },
+  {
+    "repo": "google/siglip2-so400m-patch14-384",
+    "sha": "e8e487298228002f3d8a82e0cd5c8ea9c567f57f",
+    "gated": false,
+    "bytes": 4582795867,
+    "files": [
+      {
+        "path": "config.json",
+        "bytes": 559
+      },
+      {
+        "path": "model.safetensors",
+        "bytes": 4544143072
+      },
+      {
+        "path": "preprocessor_config.json",
+        "bytes": 394
+      },
+      {
+        "path": "special_tokens_map.json",
+        "bytes": 636
+      },
+      {
+        "path": "tokenizer.json",
+        "bytes": 34363039
+      },
+      {
+        "path": "tokenizer.model",
+        "bytes": 4241003
+      },
+      {
+        "path": "tokenizer_config.json",
+        "bytes": 47164
+      }
+    ]
+  },
+  {
+    "repo": "LiquidAI/LFM2.5-8B-A1B",
+    "sha": "dd83f5cb02aa2938b66bba9a9998d38d0517c1f3",
+    "gated": false,
+    "bytes": 16953919110,
+    "files": [
+      {
+        "path": "chat_template.jinja",
+        "bytes": 4762
+      },
+      {
+        "path": "config.json",
+        "bytes": 1205
+      },
+      {
+        "path": "generation_config.json",
+        "bytes": 318
+      },
+      {
+        "path": "model.safetensors",
+        "bytes": 16936006912
+      },
+      {
+        "path": "tokenizer.json",
+        "bytes": 17905598
+      },
+      {
+        "path": "tokenizer_config.json",
+        "bytes": 315
+      }
+    ]
+  },
+  {
+    "repo": "ai-sage/GigaChat3.1-10B-A1.8B-bf16",
+    "sha": "189fff27a1dee68473960c3d5bca53e0e07a3191",
+    "gated": false,
+    "bytes": 22971342093,
+    "files": [
+      {
+        "path": "chat_template.jinja",
+        "bytes": 17493
+      },
+      {
+        "path": "config.json",
+        "bytes": 1286
+      },
+      {
+        "path": "generation_config.json",
+        "bytes": 131
+      },
+      {
+        "path": "model-00000-of-00005.safetensors",
+        "bytes": 4986065392
+      },
+      {
+        "path": "model-00001-of-00005.safetensors",
+        "bytes": 4085021224
+      },
+      {
+        "path": "model-00002-of-00005.safetensors",
+        "bytes": 4085022040
+      },
+      {
+        "path": "model-00003-of-00005.safetensors",
+        "bytes": 4085022240
+      },
+      {
+        "path": "model-00004-of-00005.safetensors",
+        "bytes": 4085022240
+      },
+      {
+        "path": "model-00005-of-00005.safetensors",
+        "bytes": 1634008560
+      },
+      {
+        "path": "model.safetensors.index.json",
+        "bytes": 477479
+      },
+      {
+        "path": "special_tokens_map.json",
+        "bytes": 276
+      },
+      {
+        "path": "tokenizer.json",
+        "bytes": 10680800
+      },
+      {
+        "path": "tokenizer_config.json",
+        "bytes": 2932
+      }
+    ]
+  },
+  {
+    "repo": "openai/gpt-oss-20b",
+    "sha": "6cee5e81ee83917806bbde320786a8fb61efebee",
+    "gated": false,
+    "bytes": 27550558894,
+    "files": [
+      {
+        "path": "chat_template.jinja",
+        "bytes": 16738
+      },
+      {
+        "path": "config.json",
+        "bytes": 1806
+      },
+      {
+        "path": "generation_config.json",
+        "bytes": 177
+      },
+      {
+        "path": "model-00000-of-00002.safetensors",
+        "bytes": 4792272488
+      },
+      {
+        "path": "model-00001-of-00002.safetensors",
+        "bytes": 4798702184
+      },
+      {
+        "path": "model-00002-of-00002.safetensors",
+        "bytes": 4170342232
+      },
+      {
+        "path": "model.safetensors.index.json",
+        "bytes": 36355
+      },
+      {
+        "path": "original/config.json",
+        "bytes": 376
+      },
+      {
+        "path": "original/dtypes.json",
+        "bytes": 13082
+      },
+      {
+        "path": "original/model.safetensors",
+        "bytes": 13761300984
+      },
+      {
+        "path": "special_tokens_map.json",
+        "bytes": 98
+      },
+      {
+        "path": "tokenizer.json",
+        "bytes": 27868174
+      },
+      {
+        "path": "tokenizer_config.json",
+        "bytes": 4200
+      }
+    ]
+  },
+  {
+    "repo": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "sha": "cc594898137f460bfe9f0759e9844b3ce807cfb5",
+    "gated": false,
+    "bytes": 16595961188,
+    "files": [
+      {
+        "path": "chat_template.json",
+        "bytes": 1050
+      },
+      {
+        "path": "config.json",
+        "bytes": 1374
+      },
+      {
+        "path": "generation_config.json",
+        "bytes": 216
+      },
+      {
+        "path": "merges.txt",
+        "bytes": 1671839
+      },
+      {
+        "path": "model-00001-of-00005.safetensors",
+        "bytes": 3900233256
+      },
+      {
+        "path": "model-00002-of-00005.safetensors",
+        "bytes": 3864726320
+      },
+      {
+        "path": "model-00003-of-00005.safetensors",
+        "bytes": 3864726424
+      },
+      {
+        "path": "model-00004-of-00005.safetensors",
+        "bytes": 3864733680
+      },
+      {
+        "path": "model-00005-of-00005.safetensors",
+        "bytes": 1089994880
+      },
+      {
+        "path": "model.safetensors.index.json",
+        "bytes": 57619
+      },
+      {
+        "path": "preprocessor_config.json",
+        "bytes": 350
+      },
+      {
+        "path": "tokenizer.json",
+        "bytes": 7031645
+      },
+      {
+        "path": "tokenizer_config.json",
+        "bytes": 5702
+      },
+      {
+        "path": "vocab.json",
+        "bytes": 2776833
+      }
+    ]
+  },
+  {
+    "repo": "google/gemma-4-E4B-it",
+    "sha": "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
+    "gated": false,
+    "bytes": 16024781005,
+    "files": [
+      {
+        "path": "chat_template.jinja",
+        "bytes": 18569
+      },
+      {
+        "path": "config.json",
+        "bytes": 5145
+      },
+      {
+        "path": "generation_config.json",
+        "bytes": 208
+      },
+      {
+        "path": "model.safetensors",
+        "bytes": 15992595884
+      },
+      {
+        "path": "processor_config.json",
+        "bytes": 1689
+      },
+      {
+        "path": "tokenizer.json",
+        "bytes": 32156428
+      },
+      {
+        "path": "tokenizer_config.json",
+        "bytes": 3082
+      }
+    ]
+  }
+]

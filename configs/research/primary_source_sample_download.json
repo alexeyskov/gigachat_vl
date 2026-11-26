@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "owner": "primary_source_bounded_train_samples_v1",
+  "created_utc": "2026-11-22T10:26:36.378811+00:00",
+  "purpose": "Download one pinned TRAIN shard per six missing source families to inspect actual schemas and develop preparation; no primary sampling/clearance/training authorization",
+  "max_new_bytes": 3221225472,
+  "reserve_gib": 120,
+  "files": [
+    {
+      "repo": "HuggingFaceM4/FineVision",
+      "revision": "3c380a731a3429c1d04693d6ec16d7e683def84c",
+      "path": "LLaVA_Instruct_150K/train-00000-of-00154.parquet",
+      "bytes": 494733962,
+      "inventory": "datasets/research/FineVision.files.json",
+      "inventory_sha256": "7c9d7dc20584037e760e3be79dcb6ab6a8447f23f22e646c118721eeaf8eebb9"
+    },
+    {
+      "repo": "HuggingFaceM4/FineVision",
+      "revision": "3c380a731a3429c1d04693d6ec16d7e683def84c",
+      "path": "docvqa/train-00000-of-00025.parquet",
+      "bytes": 435142791,
+      "inventory": "datasets/research/FineVision.files.json",
+      "inventory_sha256": "7c9d7dc20584037e760e3be79dcb6ab6a8447f23f22e646c118721eeaf8eebb9"
+    },
+    {
+      "repo": "HuggingFaceM4/FineVision",
+      "revision": "3c380a731a3429c1d04693d6ec16d7e683def84c",
+      "path": "infographic_vqa/train-00000-of-00009.parquet",
+      "bytes": 510081245,
+      "inventory": "datasets/research/FineVision.files.json",
+      "inventory_sha256": "7c9d7dc20584037e760e3be79dcb6ab6a8447f23f22e646c118721eeaf8eebb9"
+    },
+    {
+      "repo": "HuggingFaceM4/FineVision",
+      "revision": "3c380a731a3429c1d04693d6ec16d7e683def84c",
+      "path": "ai2d_merged/train-00000-of-00002.parquet",
+      "bytes": 438745923,
+      "inventory": "datasets/research/FineVision.files.json",
+      "inventory_sha256": "7c9d7dc20584037e760e3be79dcb6ab6a8447f23f22e646c118721eeaf8eebb9"
+    },
+    {
+      "repo": "HuggingFaceM4/FineVision",
+      "revision": "3c380a731a3429c1d04693d6ec16d7e683def84c",
+      "path": "aokvqa/train-00000-of-00002.parquet",
+      "bytes": 445947306,
+      "inventory": "datasets/research/FineVision.files.json",
+      "inventory_sha256": "7c9d7dc20584037e760e3be79dcb6ab6a8447f23f22e646c118721eeaf8eebb9"
+    },
+    {
+      "repo": "lmms-lab/GQA",
+      "revision": "a6e72d6e1b912da88af8b2f9eba05d5ea8ec2dd8",
+      "path": "train_balanced_instructions/train-00000-of-00001.parquet",
+      "bytes": 183979778,
+      "inventory": "datasets/research/eval-metadata/lmms-lab--GQA.json",
+      "inventory_sha256": "9bd234b349d358ec355d4e21b7c715a7dc1c1874d095bdb490127872afdcc6dd"
+    },
+    {
+      "repo": "lmms-lab/GQA",
+      "revision": "a6e72d6e1b912da88af8b2f9eba05d5ea8ec2dd8",
+      "path": "train_balanced_images/train-00000-of-00021.parquet",
+      "bytes": 487234978,
+      "inventory": "datasets/research/eval-metadata/lmms-lab--GQA.json",
+      "inventory_sha256": "9bd234b349d358ec355d4e21b7c715a7dc1c1874d095bdb490127872afdcc6dd"
+    }
+  ],
+  "declared_total_bytes": 2995865983,
+  "scientific_train_manifest_created": false,
+  "eligible_pool_counts_known": false,
+  "primary_training_authorized": false
+}

@@ -1,0 +1,6 @@
+{
+  "source_url": "https://raw.githubusercontent.com/GT-Vision-Lab/VQA/master/PythonEvaluationTools/vqaEvaluation/vqaEval.py",
+  "source_sha256": "f08edfcad5be0112500993e245c706b6cb928eadebe203f89f838e5e0d04bec8",
+  "license_url": "https://raw.githubusercontent.com/GT-Vision-Lab/VQA/master/license.txt",
+  "contents": "BSD-licensed normalization lookup tables; scoring implementation in src/eval/research_metrics.py"
+}

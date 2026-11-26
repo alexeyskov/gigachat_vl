@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "owner": "research_caption_data_v2_signal_safe_preparation",
+  "created_at": "2026-11-22T09:12:38.126688+00:00",
+  "test_command": "CUDA_VISIBLE_DEVICES='' python -m pytest -q tests/test_research_caption_data_v2.py",
+  "tests_passed": 48,
+  "test_result": "48 passed in1.63s",
+  "source_sha256": {
+    "src/eval/research_caption_data_v2.py": "5bfb38fb3f07b028e44955202306b9ad7f966cb1f3a9b6dcbfb75a6949c85b62",
+    "scripts/prepare_research_caption_eval_v2.py": "e8d6c58e11cd1b864931043743243f572b4f31a202c3652f9195f04f366512a9",
+    "tests/test_research_caption_data_v2.py": "aafef5504b711125a2efa26e4991e8a2c11f7c2e2fed9f094b82de158c1d7f59"
+  },
+  "checks": {
+    "actual_SIGINT_and_SIGTERM_in_started_unregistered_thread_gap_deferred": true,
+    "preexisting_unmasked_recipient_python_pending_callback_covered": true,
+    "disabled_protection_reproduces_original_registration_bug_deterministically": true,
+    "caller_pending_future_and_executor_threads_registered_before_original_stop_replay": true,
+    "original_main_and_worker_masks_and_handlers_restored": true,
+    "original_default_process_termination_with_blocked_main_mask_preserved": true,
+    "actual_registered_workers_joined_and_shutdown_diagnostics_verified": true,
+    "full_pool_and_all_train_exclusion_pixels_still_audited": true,
+    "v1_v2_fixture_public_references_audit_bytes_identical": true,
+    "actual_isolated_v2_CLI_to_bundle_fixture_and_same_protocol_resume": true,
+    "existing_v1_bundle_and_absolute_source_pins_restored_exact": true,
+    "caption_owner_code_CLI_test_and_READY_unchanged_no_repin": true,
+    "new_v2_sources_isolated_and_explicit_output_required": true,
+    "only_signal_safe_v2_protocol_published_by_new_writer": true,
+    "v1_resume_rejected_before_any_v2_pixel_work": true,
+    "no_Torch_import_GPU_model_download_or_training": true,
+    "no_PRIMARY_or_P05_completion_claim": true
+  },
+  "independent_review": {
+    "agent": "/root/data_cache",
+    "status": "read_only_no_remaining_concrete_blocker",
+    "tests_rerun_by_reviewer": false,
+    "findings_addressed": [
+      "process-directed default-handler replay with masked main thread",
+      "restore v1 absolute source pins through isolated v2 files"
+    ]
+  },
+  "v1_archive": "research_results/caption_data_v1_before_signal_fix/source_index.json",
+  "v1_archive_index_sha256": "2860a28f4f7e2ab4309c194e097df2d2a927c7f2df51fa3330005e08f9054484",
+  "legacy_preservation_sha256_at_release": {
+    "src/eval/research_caption_data.py": "7fd5f15721becbc3d2f362a494d85b8e1240eac95aedc206eda48fb56fd9dd76",
+    "scripts/prepare_research_caption_eval.py": "222fcea66fbaacf3df233dc0f4da8772838785ea65ad133a0126aeae981799ca",
+    "tests/test_research_caption_data.py": "f4e72e3fc6f4ea7079e29b859ac4d79dd42670d7c3544b7d2b1e5c800b221645",
+    "src/eval/research_caption_generation.py": "754c261266ab3544d81560abd90447d6abc2ad6b74b987321d007815407abefa",
+    "scripts/eval_research_caption_checkpoint.py": "10eba376834a9b6b4b9d76bdfacb54030e5ea1c6e0a17906feedb5a6b7fb6c39",
+    "tests/test_research_caption_generation.py": "c4f72cac7081f3481d6dca51abf5f98ae698b39de9b7d4c4d4b521d170768666",
+    "configs/research/caption_evaluator_ready.json": "04f980e43f8ccbad05939aef1cc18040ca0475092bb84bbbc407fb0d1a4cc526"
+  },
+  "legacy_preservation_scope": "point-in-time proof at release; not an automatic future resolver or permission to modify frozen captionowner",
+  "v1_bundle_unchanged_sha256": {
+    "audit.json": "f7cdd7e7f593aa374133c2f2cb25534dc8f3e60b9d2d78c8252b38edc00ff956",
+    "generation.jsonl": "949b76b8d2ca1f2ecc70000363cc4779542fb3e4ab94a54d15f641b274e20f64",
+    "protocol.json": "5ec185231b73beaadbc25fe4bc1cee26ecb4e51beac652e22843d2aab688ca79",
+    "references.jsonl": "30ec8aea9e8ca5b1a174cf922f230d7b0e62b86867c65d2835ae8a984f049e3e"
+  },
+  "v2": {
+    "profile": "caption_pilot_en_v2_signal_safe",
+    "protocol": "research_caption_pilot_eval_v2",
+    "output": "datasets/research/caption-eval-pilot-en-v2",
+    "actual_full_preparation_completed": false,
+    "actual_output_exists": false,
+    "expected_current_pool_images_from_v1_audit": 372,
+    "expected_distinct_pixel_files_from_v1_audit": 24626,
+    "default_legacy_CLI_output_changed": false,
+    "GPU_or_service_started": false
+  },
+  "future_ROOT_only_command": [
+    "env",
+    "CUDA_VISIBLE_DEVICES=",
+    "python",
+    "-u",
+    "scripts/prepare_research_caption_eval_v2.py",
+    "--preparation-profile",
+    "caption_pilot_en_v2_signal_safe",
+    "--output",
+    "datasets/research/caption-eval-pilot-en-v2",
+    "--workers",
+    "4",
+    "--reserve-gb",
+    "120",
+    "--memory-reserve-gb",
+    "2"
+  ],
+  "future_schedule": "ROOT under Supervisor only when exclusive GPU proof is not pause_intent/running_full512; no actual25K audit launched here",
+  "next_gate": "After ROOT real full-v2 audit and bundle verification only, explicitly revise captionowner DATA_PROTOCOL/bundle pin and new READY/CPU preflight; current v1 owner remains byte-exact754/10eb/c4f/04f."
+}

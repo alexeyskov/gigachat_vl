@@ -1,0 +1,15 @@
+{
+  "status": "passed_CPU_source_phase_parent_guard_tests",
+  "tests_passed": 8,
+  "created_unix": 1795384588.0525753,
+  "source_sha256": {
+    "scripts/warm_research_budget18_qwen_v2.py": "242219b19c64f07460b3c9445d53e83c1ddf38c6ed1262c1fb2e424042a450bf",
+    "tests/test_research_budget18_qwen_warmup_v2.py": "e4b2923ac77e886e7218c89599eda8d7e7bc91f44e9c9941c011929c048a05bd"
+  },
+  "worklist": "missing cache paths only, protected7616RGB closure SHA7acbb9...",
+  "target": "SmallThinker/SigLIP R3 text_only under source-bound V4",
+  "maximum_seconds": 600,
+  "cached_feature_bytes_or_training_updated": false,
+  "native_cache_fingerprint_unchanged": true,
+  "actual_second_GPU_warmup_not_yet_run": true
+}

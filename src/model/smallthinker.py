@@ -82,10 +82,75 @@ class SmallThinkerExpert(nn.Module):
         return self.down(self.up(hidden_states) * F.relu(self.gate(hidden_states)))
 
 
+def smallthinker_grouped_dispatch(owner, experts, states, weights, order, counts,
+                                  visual=None, gate_logits=None):
+    """Grouped ReGLU dispatch without changing checkpoint parameter names.
+
+    Frozen plain-linear weights get a detached packed cache, keyed by every
+    parameter's version/storage/device/dtype. Trainable weights are freshly
+    stacked differentiably on every forward. Quantized/PEFT modules retain their
+    native eager calls; stacking their weight attributes would omit adaptation.
+    """
+    if not getattr(owner, "use_grouped_mm", True) or states.device.type != "cuda" or not hasattr(torch, "_grouped_mm"):
+        return None
+    dtype = torch.get_autocast_dtype("cuda") if torch.is_autocast_enabled("cuda") else states.dtype
+    if dtype not in (torch.bfloat16, torch.float16):
+        return None
+    for expert in experts:
+        if any(type(getattr(expert, p, None)) is not nn.Linear or getattr(expert, p).bias is not None
+               for p in ("up", "gate", "down")):
+            return None
+    count = sum(counts[:len(experts)])
+    output = torch.zeros_like(states)
+    if count == 0:
+        return output
+    params = [p for expert in experts for p in (expert.gate.weight, expert.up.weight, expert.down.weight)]
+    frozen = all(not p.requires_grad for p in params)
+    active = list(range(len(experts))) if frozen else [i for i in range(len(experts)) if counts[i]]
+    def pack():
+        gate_up = torch.stack([
+            torch.cat((experts[i].gate.weight.to(dtype), experts[i].up.weight.to(dtype)), dim=0)
+            for i in active
+        ])
+        down = torch.stack([experts[i].down.weight.to(dtype) for i in active])
+        return gate_up, down
+    if frozen:
+        key = (dtype, tuple((p.data_ptr(), p._version, p.device, p.dtype) for p in params))
+        cached = getattr(owner, "_frozen_grouped_cache", None)
+        if cached is None or cached[0] != key:
+            with torch.inference_mode(False), torch.no_grad():
+                cached = (key, *pack())
+            owner._frozen_grouped_cache = cached
+        gate_up_weights, down_weights = cached[1:]
+    else:
+        # Drop a previous frozen cache if the caller unfreezes this stage.
+        owner._frozen_grouped_cache = None
+        gate_up_weights, down_weights = pack()
+    top_k = weights.shape[-1]
+    selected = order[:count]
+    token, slot = selected // top_k, selected % top_k
+    x = states[token]
+    g = None
+    if gate_logits is not None:
+        ids = torch.repeat_interleave(torch.arange(len(experts), device=states.device),
+            torch.tensor(counts[:len(experts)], device=states.device), output_size=count)
+        g = gate_logits.sigmoid()[ids, visual[token].long()].to(states.dtype)[:, None]
+        x = x*g
+    offsets = torch.tensor([counts[i] for i in active], device=states.device, dtype=torch.int32).cumsum(0, dtype=torch.int32)
+    gate, up = torch._grouped_mm(x.to(dtype), gate_up_weights.transpose(-1, -2), offs=offsets).chunk(2, -1)
+    intermediate = (F.relu(gate)*up).contiguous()
+    delta = torch._grouped_mm(intermediate, down_weights.transpose(-1, -2), offs=offsets)
+    if g is not None:
+        delta = delta*g
+    output.index_add_(0, token, (delta*weights[token, slot, None]).to(output.dtype))
+    return output
+
+
 class SmallThinkerMoeBlock(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        self.use_grouped_mm = True
         self.primary_router = nn.Linear(config.hidden_size, config.moe_num_primary_experts, bias=False)
         self.experts = nn.ModuleList(
             SmallThinkerExpert(config) for _ in range(config.moe_num_primary_experts)
@@ -103,11 +168,25 @@ class SmallThinkerMoeBlock(nn.Module):
             weights = weights / weights.sum(dim=-1, keepdim=True)
         weights = weights.to(states.dtype)
         output = torch.zeros_like(states)
+        # Sort the fixed-size dispatch table once. CUDA nonzero/where otherwise
+        # synchronizes with the host separately for every expert in every layer.
+        flat_experts = indices.reshape(-1)
+        dispatch_order = flat_experts.argsort(stable=True)
+        dispatch_counts = torch.bincount(flat_experts, minlength=len(self.experts)).tolist()
+        grouped = smallthinker_grouped_dispatch(self, self.experts, states, weights,
+                                                dispatch_order, dispatch_counts)
+        if grouped is not None:
+            return grouped.reshape(shape), selected_logits
+        offset = 0
+        top_k = indices.shape[-1]
         for expert_idx, expert in enumerate(self.experts):
-            token_idx, slot = torch.where(indices == expert_idx)
-            if token_idx.numel():
+            count = dispatch_counts[expert_idx]
+            if count:
+                selected = dispatch_order[offset:offset+count]
+                token_idx, slot = selected // top_k, selected % top_k
                 delta = expert(states[token_idx]) * weights[token_idx, slot, None]
                 output.index_add_(0, token_idx, delta.to(output.dtype))
+            offset += count
         return output.reshape(shape), selected_logits
 
 

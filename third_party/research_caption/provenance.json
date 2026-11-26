@@ -1,0 +1,42 @@
+{
+  "LICENSE": {
+    "bytes": 1561,
+    "path": "license.txt",
+    "repo": "salaniz/pycocoevalcap",
+    "revision": "a24f74c408c918f1f4ec34e9514bc8a76ce41ffd",
+    "sha256": "9f8590ca85ce66aa9c2635200c358cde5187c7891cc5b37798b354254a53b1d5",
+    "url": "https://raw.githubusercontent.com/salaniz/pycocoevalcap/a24f74c408c918f1f4ec34e9514bc8a76ce41ffd/license.txt"
+  },
+  "cider_scorer.py": {
+    "bytes": 7681,
+    "path": "cider/cider_scorer.py",
+    "repo": "salaniz/pycocoevalcap",
+    "revision": "a24f74c408c918f1f4ec34e9514bc8a76ce41ffd",
+    "sha256": "299037838373391c3335e066c867ba2d6dd8617d2c8fb2c4193f32620a774adc",
+    "url": "https://raw.githubusercontent.com/salaniz/pycocoevalcap/a24f74c408c918f1f4ec34e9514bc8a76ce41ffd/cider/cider_scorer.py"
+  },
+  "original_cider_scorer_py2.py": {
+    "bytes": 7694,
+    "path": "pycocoevalcap/cider/cider_scorer.py",
+    "repo": "tylin/coco-caption",
+    "revision": "3a9afb2682141a03e1cdc02b0df6770d2c884f6f",
+    "sha256": "13e222f84e82d74b606d6afdb97d225bebddc6d1c7ee063f196d6d1ed931c6b2",
+    "url": "https://raw.githubusercontent.com/tylin/coco-caption/3a9afb2682141a03e1cdc02b0df6770d2c884f6f/pycocoevalcap/cider/cider_scorer.py"
+  },
+  "original_ptbtokenizer_py2.py": {
+    "bytes": 2808,
+    "path": "pycocoevalcap/tokenizer/ptbtokenizer.py",
+    "repo": "tylin/coco-caption",
+    "revision": "3a9afb2682141a03e1cdc02b0df6770d2c884f6f",
+    "sha256": "663c7aca1b1044040a3d75136540b7ed812b7655701ad1619906fdb8c41025fe",
+    "url": "https://raw.githubusercontent.com/tylin/coco-caption/3a9afb2682141a03e1cdc02b0df6770d2c884f6f/pycocoevalcap/tokenizer/ptbtokenizer.py"
+  },
+  "ptbtokenizer_reference.py": {
+    "bytes": 3112,
+    "path": "tokenizer/ptbtokenizer.py",
+    "repo": "salaniz/pycocoevalcap",
+    "revision": "a24f74c408c918f1f4ec34e9514bc8a76ce41ffd",
+    "sha256": "34bb5e9c16c1af74f4c3eeed56aed5c33c0f8e1f588783977f76fb5a7d1934b9",
+    "url": "https://raw.githubusercontent.com/salaniz/pycocoevalcap/a24f74c408c918f1f4ec34e9514bc8a76ce41ffd/tokenizer/ptbtokenizer.py"
+  }
+}

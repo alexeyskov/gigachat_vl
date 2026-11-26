@@ -1,0 +1,43 @@
+{
+  "allowlist": {
+    "LM_core_missing_or_mismatched_keys_allowed": false,
+    "additional_native_conversion_target_keys_only": [
+      "model.layers.26.mlp.experts.down_proj",
+      "model.layers.26.mlp.experts.gate_up_proj"
+    ],
+    "other_unexpected_keys_allowed": false,
+    "pinned_original_source_MTP_index_keys": 210
+  },
+  "checks": {
+    "actual_native_Tiny_MTP_conversion_reproduced": true,
+    "all_missing_mismatched_or_otherunexpected_keys_refused": true,
+    "native_core_tensor_bits_exact": true,
+    "native_info_sets_JSONnormalized_without_key_value_changes": true,
+    "only_two_known_packed_conversion_targets_added": true,
+    "original210_source_index_schema_guard_preserved": true,
+    "sealed_v1_source_unchanged": true
+  },
+  "created_unix": 1795374324.283387,
+  "full_Giga_weights_or_GPU_loaded": false,
+  "installed_conversion_mapping_sha256": "126a342d8be1942f76207ed30f809b659709c71618ab2b57066bfde19a0a1f83",
+  "limitations": [
+    "Only metadata adapter, no numerical math or quantizer change.",
+    "Actual Giga full-sizeCUDAloading/trainingfit remainsROOTmanaged and unproved.",
+    "Only futureV3facade shouldadoptthisadapter; earliersealedGigaV1/V2artifacts remainhistorical and unchanged."
+  ],
+  "owner": "Giga_native_MTP_loading_info_v2",
+  "schema_version": 2,
+  "source_sha256": {
+    "src/model/research_giga_loading_v1.py": "c354198662aab43b64bf494cc98390cd973912b28c52c041ed9321cf47be6d02",
+    "src/model/research_giga_loading_v2.py": "9cdc6aab3ecee6b75891d34f27da00eb27dac3b407a13466613b9359ca898ed2",
+    "tests/test_research_giga_loading_v2.py": "91cd4a6d2511087d9bb5b7c554f7ffa27ceb554c852f8e86a5542b6a59d903d5"
+  },
+  "status": "passed",
+  "test_command": "PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TOKENIZERS_PARALLELISM=false PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /venv/main/bin/python -m pytest -q tests/test_research_giga_loading_v2.py --junitxml=research_results/giga_loading_v2_cpu_tests.xml",
+  "test_report": {
+    "path": "research_results/giga_loading_v2_cpu_tests.xml",
+    "sha256": "bf5e3199aff2391182ed2b277df96dcb8405968e9ef365867d454d4ade4c1a63"
+  },
+  "test_seconds": 4.012,
+  "tests_passed": 5
+}

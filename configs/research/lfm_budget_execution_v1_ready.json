@@ -1,0 +1,185 @@
+{
+  "GPU_or_service_launched_by_agent": false,
+  "actual_full_size_LFM_GPU_run": false,
+  "actual_full_size_NF4_or_CPUgrad_Adam8_fit_proven": false,
+  "actual_released_data_context_preflights": {
+    "research_results/lfm_budget18_execution_v1/context_final/qwen729_A0_context_v2.json": {
+      "records": 4096,
+      "sha256": "dc0cb392d4f5f8906c858fb58c9210868003327a4d037811d82d28e9f2385f10",
+      "steps": 64
+    },
+    "research_results/lfm_budget18_execution_v1/context_final/qwen729_A1_context_v2.json": {
+      "records": 256,
+      "sha256": "381d3a1566332cc6a63306ad17500dbcc98fef84d0c7803383cb4662812d7a59",
+      "steps": 4
+    },
+    "research_results/lfm_budget18_execution_v1/context_final/qwen729_SFT_context_v2.json": {
+      "records": 3529,
+      "sha256": "c31c878ea39933bb988dfd601ceb3075aed1983c322490c1361ac8085bcd55df",
+      "steps": 56
+    },
+    "research_results/lfm_budget18_execution_v1/context_final/siglip2_A0_context_v2.json": {
+      "records": 4096,
+      "sha256": "2b424dfb216d877e8c51e631dc8b9cfedb2ff2b270364a71a4043746effe36ba",
+      "steps": 64
+    },
+    "research_results/lfm_budget18_execution_v1/context_final/siglip2_A1_context_v2.json": {
+      "records": 256,
+      "sha256": "529c7175f8835ba8ff3d5c6b3602d819aae070ca7a3b7dec4b91204119406bbe",
+      "steps": 4
+    },
+    "research_results/lfm_budget18_execution_v1/context_final/siglip2_SFT_context_v2.json": {
+      "records": 3529,
+      "sha256": "56688aba404cca9fab39e85c92dd4f23ca589064a9acd4e2a1738530b2cda0f6",
+      "steps": 56
+    }
+  },
+  "checks": {
+    "CPUgrad_Adam8_explicit_and_memory_estimate_guarded": true,
+    "Qwen_derived_original_donor_not_required": true,
+    "all_four_FP32_P_tensors_mandatory": true,
+    "canonical_native_sources_unchanged": true,
+    "distinct_LFM_profile_no_Small_alias": true,
+    "exact_passed_data_source_proof_binding": true,
+    "final_only_complete_native_payload_storage_budget": true,
+    "fixed_native_template_clock": true,
+    "full_context_and_no_target_truncation": true,
+    "learned_key_coverage_shape_dtype_finite_before_load": true,
+    "metadata_import_no_Torch": true,
+    "minimum_disk_reserve120_and_host_headroom32": true,
+    "native_generation_and_validator_private_imports": true,
+    "technical_smoke_cannot_initialize_science": true
+  },
+  "created_unix": 1795370767.7119575,
+  "data_release": {
+    "path": "datasets/research/budget18-en-v1/release.json",
+    "sha256": "910448c7fd680ec949d6521e32716aee2832a99fc534d185f0a06b226c0ec1c0"
+  },
+  "fixed_date": "2026-11-22",
+  "independent_source_review": {
+    "agent": "data_cache",
+    "reviewed_final_source_sha256": "7f0958baf3ee4e36906e7c6500684797b3acb6a5c2c83d3674185e54ac331773",
+    "scope": "private constructors/derived hooks/completeP/alllearnedkeys/fixedclock/reservefloor andfinaltechnical\u2192scientificinitializationrefusal; no independent GPU run",
+    "status": "clear"
+  },
+  "limitations": [
+    "Full-size CUDA loading/forward/backward/optimizer/save/reload remains ROOT-only smoke gate; tiny CPU correctness is not GPU capacity proof.",
+    "CPUgrad Adam8 changes optimizer moment precision; it is explicitly distinct from FP32 AdamW.",
+    "Future GPU figures and host page-cache/write peaks are estimates, not an actual full-size fit claim.",
+    "Optional technical smoke checkpoints are forbidden as scientific initialization.",
+    "All18 rawFP32 full-model retention still needs a separate disk-capacity policy."
+  ],
+  "optional_4f_A1_supported_but_not_requested_or_launched": true,
+  "owner": "budget_lfm_native_execution_v1",
+  "profile": {
+    "actual_full_size_LFM_GPU_validated": false,
+    "checkpoint_policy": "one_final_native_object_shared_best_last_complete_optimizer_scheduler_RNG",
+    "compute_dtype": "bfloat16",
+    "cublas_workspace_config": ":4096:8",
+    "derived_vision_code_sha256": {
+      "scripts/eval_research_derived_vision_v1.py": "c233331dcf09ce947316e124100448f745bffc5eb9dac6dac4a73e38dd7a8f62",
+      "scripts/extract_vision_features.py": "ceb245f5a5d0c0d777b60225eb07e4ce2478903b4e7bc65274d3650a2de88258",
+      "scripts/run_research_derived_vision_v1.py": "8ed8fb52b96c80b2c103a883871ce1044382fe9872f909b75a5f1198ca61537f",
+      "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+      "src/dataset/vision_cache.py": "47bfa012cffdc88ab960f036c18407ad1f7215b69a78267b623dc33bebd4d808",
+      "src/eval/research_inference.py": "47576ba901c5e6ba3dc95b8c8777872d36c3ea73f2a4e0c6d74a0955df75744d",
+      "src/eval/research_metrics.py": "440424ed720dbf17fce9a12ccb4ec6565f30298c6c40e9b47fd0ab60a8ed6844",
+      "src/eval/research_selection.py": "91c05924df717ce46ef22787dfa5b4b0e45e35533096769373be62ceda3cade2",
+      "src/model/gigachat_vl.py": "12f6b1070ccc60f9c53a045e53e866b2526618a658e0f28f002dec4e21675a95",
+      "src/model/research_moe.py": "f8cbfd6a8fdb7044d25d031f0a028055cb114a7ebd71a9b4f873dcd752674c6c",
+      "src/model/research_quantization.py": "b588541b3232ca522acaeae2d1949cc2aac29cf9608c2d8f99afc8faad129830",
+      "src/model/research_vision.py": "6f8d2aeaa2daea022ffedaed53b7fc2daecfa18388165ef8f23876664ebee46d",
+      "src/model/smallthinker.py": "7d5aaa551b98e7958f1a69930c797f7906d7c770084b156ba36cc5d577cbdd26",
+      "src/model/text_moe_backbones.py": "3ad524222e500acb6526256224df875f529f4b1288b1025a29e24e79298c20c8",
+      "src/model/visual_expert_gates.py": "93f7e69f1903c3cee9a7999fa6b93428a8b5df42cf4cf1f79e62ea999609bb4d",
+      "src/utils/research_checkpoint_compat.py": "4dcf5c73f8e719d8a995f2578fb65be9e6fca48ad80705cb95028ed2bc3141b6",
+      "src/utils/research_derived_vision_v1.py": "1ce774366941626efcd66d77fd128ab35c4d32754af8327f58f950da4ec70541",
+      "src/utils/research_storage.py": "ad67bd545ee86076dab713c5316e85dcede65147ea96e9f778ba25a5fc1894b3",
+      "tests/test_research_derived_vision_v1.py": "b7b940004551a6f400186c836f126616ab37ea775ffea5726ef889c2078ed6ef",
+      "third_party/vqa_normalization/tables.json": "ba9b45e88fcf697c1de6e550158ab9fbbe4d8456e4da34f3c61079e35823bce8"
+    },
+    "deterministic_algorithms": true,
+    "fixed_native_template_date_UTC": "2026-11-22",
+    "full_SFT_optimizer": "cpu_grad_bnb_paged_adamw8",
+    "full_master_dtype": "float32",
+    "full_optimizer_is_not_FP32_AdamW": true,
+    "full_optimizer_moment_bits": 8,
+    "matmul_allow_tf32": true,
+    "minimum_disk_reserve_GiB": 120,
+    "model": "LiquidAI/LFM2.5-8B-A1B",
+    "model_revision": "dd83f5cb02aa2938b66bba9a9998d38d0517c1f3",
+    "name": "budget_lfm_native_stock_deterministic_v1",
+    "package_versions": {
+      "bitsandbytes": "0.50.2",
+      "huggingface-hub": "1.33.0",
+      "peft": "0.21.2",
+      "tokenizers": "0.22.2",
+      "torch": "2.15.0",
+      "transformers": "5.15.0"
+    },
+    "recipes": [
+      "1b",
+      "4f",
+      "3c"
+    ],
+    "runtime_versions": {
+      "__version__": "2.15.0+cu132",
+      "cuda": "13.2",
+      "git_version": "d0f2af8b66b20da4baa50644c0cd3f887a2eae2e",
+      "hip": null
+    },
+    "schema_version": 1,
+    "source_sha256": {
+      "scripts/eval_research_checkpoint.py": "cf06fcf7ba5c2be4860d58781478de7b51a101c21a4bc8cd95ebb333220baff2",
+      "scripts/eval_research_lfm_budget_v1.py": "4b23542f23254f489065649e41013ff3706ca18bc54919d3a39b90404ae4b298",
+      "scripts/eval_research_stock_deterministic.py": "c599ca276249342678be10c6d13c3333319ab3dae02572b411826b50b4866e31",
+      "scripts/run_research_lfm_budget_v1.py": "faa19cebdd10f52ffd56f361e39ca4b3132a1f6dec7e93a0e1d1bff771a1ad43",
+      "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+      "scripts/run_research_stock_deterministic.py": "87403cd21df0de50f781bc12e9b13f02117ede9fd8bc5dda7fc4c63abff8ff13",
+      "scripts/validate_research_checkpoint.py": "5fb59747dad1badb376e5cc95aa4f9551e35556a24067d1bf182c89140ee9626",
+      "scripts/validate_research_lfm_budget_v1.py": "96cd6581cf967a568495b22792ee58c8970f7cd20fe12fb8c7f1898ab103127b",
+      "scripts/validate_research_stock_deterministic.py": "af72c5d6ffd60776d6cede9e2e381e3db5cc6009d37f7410fc5ae4cdbb297292",
+      "src/eval/research_inference.py": "47576ba901c5e6ba3dc95b8c8777872d36c3ea73f2a4e0c6d74a0955df75744d",
+      "src/eval/research_selection.py": "91c05924df717ce46ef22787dfa5b4b0e45e35533096769373be62ceda3cade2",
+      "src/eval/research_text_generation.py": "b311a58969a28888169ed965c5d919b9dee2ddf4743787655e54af9d33182e0e",
+      "src/model/research_moe.py": "f8cbfd6a8fdb7044d25d031f0a028055cb114a7ebd71a9b4f873dcd752674c6c",
+      "src/model/smallthinker.py": "7d5aaa551b98e7958f1a69930c797f7906d7c770084b156ba36cc5d577cbdd26",
+      "src/utils/research_budget_storage_v1.py": "f5e33c4fdea84f9ec8e180dda786e4301cfd02f122fc985a24d91d82858acbfe",
+      "src/utils/research_lfm_budget_v1.py": "7f0958baf3ee4e36906e7c6500684797b3acb6a5c2c83d3674185e54ac331773",
+      "src/utils/research_lfm_checkpoint_requirements_v1.py": "aa3aacb07b148a8b03f7ade44b27ff9bb48c46f674f4fbe172093985c0db648c",
+      "src/utils/research_stock_determinism.py": "98b74c07ae75870bb75f58ab7c63ba73f45940d32855395c41dd54fd2d0c178c"
+    },
+    "torch_threads": 8,
+    "vision_tokens": 729,
+    "visions": [
+      "google/siglip2-so400m-patch14-384",
+      "Qwen/Qwen2.5-VL-7B-Instruct"
+    ],
+    "warn_only": false
+  },
+  "requested_stage_schedule": {
+    "1b": "NF4 A0 -> new visual/router A1 -> QLoRA SFT",
+    "3c": "BF16 A0 -> new visual/router/gate A1 -> full FP32-master SFT",
+    "4f": "BF16 A0 -> full FP32-master SFT (A1 omitted by ROOT decision)"
+  },
+  "schema_version": 1,
+  "scientific_rows_generated": 0,
+  "source_sha256": {
+    "scripts/eval_research_lfm_budget_v1.py": "4b23542f23254f489065649e41013ff3706ca18bc54919d3a39b90404ae4b298",
+    "scripts/run_research_lfm_budget_v1.py": "faa19cebdd10f52ffd56f361e39ca4b3132a1f6dec7e93a0e1d1bff771a1ad43",
+    "scripts/validate_research_lfm_budget_v1.py": "96cd6581cf967a568495b22792ee58c8970f7cd20fe12fb8c7f1898ab103127b",
+    "src/eval/research_text_generation.py": "b311a58969a28888169ed965c5d919b9dee2ddf4743787655e54af9d33182e0e",
+    "src/utils/research_budget_storage_v1.py": "f5e33c4fdea84f9ec8e180dda786e4301cfd02f122fc985a24d91d82858acbfe",
+    "src/utils/research_lfm_budget_v1.py": "7f0958baf3ee4e36906e7c6500684797b3acb6a5c2c83d3674185e54ac331773",
+    "src/utils/research_lfm_checkpoint_requirements_v1.py": "aa3aacb07b148a8b03f7ade44b27ff9bb48c46f674f4fbe172093985c0db648c",
+    "tests/test_research_budget_storage_v1.py": "1dc1be065c8e04363c86487cb898e31f4926715044a62244caf48a7506ee26d3",
+    "tests/test_research_lfm_budget_v1.py": "aa47b6010dea0c4e72e8d49cf2c86d2d3eaa475210060b5b51d9145fe6e1ec53",
+    "tests/test_research_lfm_production_cpu_v1.py": "ea857495f4c2f19f65adf17a2baa66e5ed4d1567efcc1c05d68289c8b585e062"
+  },
+  "status": "passed",
+  "test_command": "CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_research_lfm_budget_v1.py tests/test_research_lfm_production_cpu_v1.py tests/test_research_budget_storage_v1.py --junitxml=research_results/lfm_budget18_execution_v1/CPU_tests.xml",
+  "test_result": "50 passed,1 pre-existing sparse fixture warning,7.51s",
+  "test_result_sha256": "c3c22521ff9cdb09d5f87726add0b780d87ba2fff3f9e6b5dd9e071b9dd286c3",
+  "tests_passed": 50,
+  "validation_scope": "CPU tests plus actual released full-input native context censuses; full-size GPU execution remains pending"
+}

@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "validation_scope": "CPU_tests_actual_completed_A0_P_guard_and_CPU_A1_preflight_only",
+  "created_utc": "2026-11-22T18:17:57.077590+00:00",
+  "owner": "small_stock_budget18_execution_v1",
+  "source_sha256": {
+    "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+    "scripts/eval_research_checkpoint.py": "cf06fcf7ba5c2be4860d58781478de7b51a101c21a4bc8cd95ebb333220baff2",
+    "scripts/validate_research_checkpoint.py": "5fb59747dad1badb376e5cc95aa4f9551e35556a24067d1bf182c89140ee9626",
+    "src/eval/research_inference.py": "47576ba901c5e6ba3dc95b8c8777872d36c3ea73f2a4e0c6d74a0955df75744d",
+    "src/eval/research_selection.py": "91c05924df717ce46ef22787dfa5b4b0e45e35533096769373be62ceda3cade2",
+    "src/model/smallthinker.py": "7d5aaa551b98e7958f1a69930c797f7906d7c770084b156ba36cc5d577cbdd26",
+    "src/model/research_moe.py": "f8cbfd6a8fdb7044d25d031f0a028055cb114a7ebd71a9b4f873dcd752674c6c",
+    "src/utils/research_stock_determinism.py": "98b74c07ae75870bb75f58ab7c63ba73f45940d32855395c41dd54fd2d0c178c",
+    "scripts/run_research_stock_deterministic.py": "87403cd21df0de50f781bc12e9b13f02117ede9fd8bc5dda7fc4c63abff8ff13",
+    "scripts/eval_research_stock_deterministic.py": "c599ca276249342678be10c6d13c3333319ab3dae02572b411826b50b4866e31",
+    "scripts/validate_research_stock_deterministic.py": "af72c5d6ffd60776d6cede9e2e381e3db5cc6009d37f7410fc5ae4cdbb297292",
+    "src/utils/research_derived_stock_v1.py": "4d7453949c16f9b9e82e53e71c1cd13b46bff9a1c47c0da58f314e9c7c5cdbdc",
+    "scripts/run_research_derived_stock_v1.py": "9aef1d13280fb0179c51c47ddc4dd81b9ae310c6040ea41a3014ef622960561b",
+    "scripts/eval_research_derived_stock_v1.py": "8068f357918e545d95f1eed3901f5499a1880b3f55144a7d292ec7720e70751e",
+    "tests/test_research_derived_stock_v1.py": "2e5c9e9a808c055e505799fcf47dd2412bf49029a9c1a3c503b7c360c8913b94",
+    "src/model/research_vision.py": "6f8d2aeaa2daea022ffedaed53b7fc2daecfa18388165ef8f23876664ebee46d",
+    "src/dataset/vision_cache.py": "47bfa012cffdc88ab960f036c18407ad1f7215b69a78267b623dc33bebd4d808",
+    "src/utils/research_checkpoint_compat.py": "4dcf5c73f8e719d8a995f2578fb65be9e6fca48ad80705cb95028ed2bc3141b6",
+    "src/utils/research_storage.py": "ad67bd545ee86076dab713c5316e85dcede65147ea96e9f778ba25a5fc1894b3",
+    "src/model/gigachat_vl.py": "12f6b1070ccc60f9c53a045e53e866b2526618a658e0f28f002dec4e21675a95",
+    "scripts/extract_vision_features.py": "ceb245f5a5d0c0d777b60225eb07e4ce2478903b4e7bc65274d3650a2de88258",
+    "src/model/research_quantization.py": "b588541b3232ca522acaeae2d1949cc2aac29cf9608c2d8f99afc8faad129830",
+    "src/model/visual_expert_gates.py": "93f7e69f1903c3cee9a7999fa6b93428a8b5df42cf4cf1f79e62ea999609bb4d",
+    "src/model/text_moe_backbones.py": "3ad524222e500acb6526256224df875f529f4b1288b1025a29e24e79298c20c8",
+    "src/eval/research_metrics.py": "440424ed720dbf17fce9a12ccb4ec6565f30298c6c40e9b47fd0ab60a8ed6844",
+    "third_party/vqa_normalization/tables.json": "ba9b45e88fcf697c1de6e550158ab9fbbe4d8456e4da34f3c61079e35823bce8",
+    "src/utils/research_derived_vision_v1.py": "1ce774366941626efcd66d77fd128ab35c4d32754af8327f58f950da4ec70541",
+    "scripts/run_research_derived_vision_v1.py": "8ed8fb52b96c80b2c103a883871ce1044382fe9872f909b75a5f1198ca61537f",
+    "scripts/eval_research_derived_vision_v1.py": "c233331dcf09ce947316e124100448f745bffc5eb9dac6dac4a73e38dd7a8f62",
+    "tests/test_research_derived_vision_v1.py": "b7b940004551a6f400186c836f126616ab37ea775ffea5726ef889c2078ed6ef",
+    "src/utils/research_small_budget_v1.py": "4bdfe3ea66eabd2249a7ad7c253f2d9bb938ba06214882cce3371b39193517d6",
+    "scripts/run_research_small_budget_v1.py": "cef3200711ea22e37dfd68a5508d16188be1a2640578e08919374c78109345c1",
+    "src/utils/research_budget_storage_v1.py": "f5e33c4fdea84f9ec8e180dda786e4301cfd02f122fc985a24d91d82858acbfe",
+    "src/eval/research_text_generation.py": "b311a58969a28888169ed965c5d919b9dee2ddf4743787655e54af9d33182e0e",
+    "tests/test_research_small_budget_v1.py": "7d1b811f8e65c16ddf0d1606183c66bc2d4f9629a88875b15bd69f474adb3ecd"
+  },
+  "budget_execution": {
+    "owner": "small_stock_budget18_execution_v1",
+    "schema_version": 1,
+    "profile": "budget18-en-v1",
+    "source_sha256": {
+      "src/utils/research_small_budget_v1.py": "4bdfe3ea66eabd2249a7ad7c253f2d9bb938ba06214882cce3371b39193517d6",
+      "scripts/run_research_small_budget_v1.py": "cef3200711ea22e37dfd68a5508d16188be1a2640578e08919374c78109345c1",
+      "src/utils/research_budget_storage_v1.py": "f5e33c4fdea84f9ec8e180dda786e4301cfd02f122fc985a24d91d82858acbfe",
+      "src/eval/research_text_generation.py": "b311a58969a28888169ed965c5d919b9dee2ddf4743787655e54af9d33182e0e"
+    },
+    "data_release": {
+      "path": "/workspace/gigachat_vl/datasets/research/budget18-en-v1/release.json",
+      "sha256": "910448c7fd680ec949d6521e32716aee2832a99fc534d185f0a06b226c0ec1c0"
+    },
+    "stock_numerical_profile_unchanged": true,
+    "fixed_clock": {
+      "date": "2026-11-22",
+      "source_sha256": "b311a58969a28888169ed965c5d919b9dee2ddf4743787655e54af9d33182e0e",
+      "pinned_Small_template_has_no_date_dependency_existing_stock_evaluation_is_prompt_equivalent": true
+    },
+    "seed": 42,
+    "epochs": 1,
+    "effective_batch_size": 64,
+    "eval_every": 10000,
+    "max_length": 4096,
+    "final_only_native_checkpoint": true,
+    "R2_4f_A1_allowed": false
+  },
+  "numerical_profile": {
+    "name": "stock_deterministic_small_v1",
+    "schema_version": 1,
+    "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+    "deterministic_algorithms": true,
+    "warn_only": false,
+    "cublas_workspace_config": ":4096:8",
+    "matmul_allow_tf32": true,
+    "torch_threads": 8,
+    "custom_kernels": false,
+    "source_sha256": {
+      "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+      "scripts/eval_research_checkpoint.py": "cf06fcf7ba5c2be4860d58781478de7b51a101c21a4bc8cd95ebb333220baff2",
+      "scripts/validate_research_checkpoint.py": "5fb59747dad1badb376e5cc95aa4f9551e35556a24067d1bf182c89140ee9626",
+      "src/eval/research_inference.py": "47576ba901c5e6ba3dc95b8c8777872d36c3ea73f2a4e0c6d74a0955df75744d",
+      "src/eval/research_selection.py": "91c05924df717ce46ef22787dfa5b4b0e45e35533096769373be62ceda3cade2",
+      "src/model/smallthinker.py": "7d5aaa551b98e7958f1a69930c797f7906d7c770084b156ba36cc5d577cbdd26",
+      "src/model/research_moe.py": "f8cbfd6a8fdb7044d25d031f0a028055cb114a7ebd71a9b4f873dcd752674c6c",
+      "src/utils/research_stock_determinism.py": "98b74c07ae75870bb75f58ab7c63ba73f45940d32855395c41dd54fd2d0c178c",
+      "scripts/run_research_stock_deterministic.py": "87403cd21df0de50f781bc12e9b13f02117ede9fd8bc5dda7fc4c63abff8ff13",
+      "scripts/eval_research_stock_deterministic.py": "c599ca276249342678be10c6d13c3333319ab3dae02572b411826b50b4866e31",
+      "scripts/validate_research_stock_deterministic.py": "af72c5d6ffd60776d6cede9e2e381e3db5cc6009d37f7410fc5ae4cdbb297292"
+    },
+    "runtime_versions": {
+      "__version__": "2.15.0+cu132",
+      "cuda": "13.2",
+      "git_version": "d0f2af8b66b20da4baa50644c0cd3f887a2eae2e",
+      "hip": null
+    },
+    "package_versions": {
+      "torch": "2.15.0",
+      "transformers": "5.15.0",
+      "peft": "0.21.2",
+      "bitsandbytes": "0.50.2",
+      "tokenizers": "0.22.2",
+      "huggingface-hub": "1.33.0"
+    },
+    "torch_version_source_sha256": "6feda231420514c053c7116e00e36d3313d6708aa1ab2a93dfa07ad4e5735184"
+  },
+  "data_release": {
+    "path": "/workspace/gigachat_vl/datasets/research/budget18-en-v1/release.json",
+    "sha256": "910448c7fd680ec949d6521e32716aee2832a99fc534d185f0a06b226c0ec1c0",
+    "bytes": 6613
+  },
+  "test_command": "/venv/main/bin/python -m pytest -q tests/test_research_small_budget_v1.py --junitxml=research_results/small_budget_wrapper_v1/cpu_tests.xml",
+  "tests_passed": 22,
+  "tests": {
+    "path": "/workspace/gigachat_vl/research_results/small_budget_wrapper_v1/cpu_tests.xml",
+    "sha256": "868621717b17f943489f6fefcdea1ef082cc00d933d57356b7f32f697238dc43",
+    "bytes": 3408
+  },
+  "evidence": {
+    "actual_completed_A0_to_A1_CPU_preflight.json": {
+      "path": "/workspace/gigachat_vl/research_results/small_budget_wrapper_v1/actual_completed_A0_to_A1_CPU_preflight.json",
+      "sha256": "c5e29a1886e90cb24567e537a5c843b764017b06c55867dc023b8debf7114f7f",
+      "bytes": 6904
+    },
+    "actual_completed_A0_P_guard.json": {
+      "path": "/workspace/gigachat_vl/research_results/small_budget_wrapper_v1/actual_completed_A0_P_guard.json",
+      "sha256": "220ab6b218131767c7efd6e233aebc4d9147c14b87ee23080a8bc04f10b1dad3",
+      "bytes": 1307
+    }
+  },
+  "checks": {
+    "stock_numerical_definition_unchanged": true,
+    "complete_frozen_FP32_projector_required": true,
+    "A0_initialization_projector_only": true,
+    "A1_new_expert_router_gate_keys_required": true,
+    "resume_all_current_trainable_keys_required": true,
+    "saved_tensor_shapes_dtypes_finite_checked": true,
+    "exact_completed_source_stage_counts_and_configuration": true,
+    "fresh_existing_A0_exception_narrow_no_config_rewrites": true,
+    "no_4f_A1": true,
+    "fixed_clock_and_actual_pinnedSmall_prompt_equivalence": true,
+    "native_complete_model_optimizer_scheduler_RNG_save_unchanged": true,
+    "exact_payload_disk_budget_and_120GiB_reserve": true,
+    "default_no_Torch_metadata": true,
+    "process_local_runner_hook_restored": true
+  },
+  "independent_review": {
+    "reviewer": "/root/moe_routing",
+    "status": "clear_source_only",
+    "module_sha256": "4bdfe3ea66eabd2249a7ad7c253f2d9bb938ba06214882cce3371b39193517d6",
+    "scope": "FixedClock/complete P/A1 new branch and current trainables/derived Qwen MRO/process-local restoration"
+  },
+  "actual_A1_launch_owned_by_ROOT": {
+    "supervisor_name": "research-budget18-small-siglip-r1-a1",
+    "supervisor_config": {
+      "path": "/etc/supervisor/conf.d/research-budget18-small-siglip-r1-a1.conf",
+      "sha256": "bf3a798b1ec144ceec55918d9a8c97db6f6db63371c0c63ae03f4db70e59e598",
+      "bytes": 1436
+    },
+    "command": "/venv/main/bin/python -u scripts/run_research_small_budget_v1.py --numerical-profile stock_deterministic_small_v1 --allow-gpu --data-proof datasets/research/budget18-en-v1/release.json --model Tiiny/SmallThinker-4BA0.6B-Instruct --vision google/siglip2-so400m-patch14-384 --stage A1 --recipe 1b --manifest datasets/research/budget18-en-v1/alignment_a1_train.jsonl --validation datasets/research/budget18-en-v1/alignment_validation.jsonl --output runs/research/smallthinker4__siglip2__1b__A1__budget18_s42 --initial-checkpoint runs/research/smallthinker4__siglip2__A0_nf4__budget18_s42/best/state.pt --epochs 1 --batch-size 16 --effective-batch-size 64 --max-length 4096 --seed 42 --eval-records 64 --eval-every 10000 --selection-metric ce --optimizer-backend torch_adamw32 --reserve-gb 120",
+    "argv": [
+      "/venv/main/bin/python",
+      "-u",
+      "scripts/run_research_small_budget_v1.py",
+      "--numerical-profile",
+      "stock_deterministic_small_v1",
+      "--allow-gpu",
+      "--data-proof",
+      "datasets/research/budget18-en-v1/release.json",
+      "--model",
+      "Tiiny/SmallThinker-4BA0.6B-Instruct",
+      "--vision",
+      "google/siglip2-so400m-patch14-384",
+      "--stage",
+      "A1",
+      "--recipe",
+      "1b",
+      "--manifest",
+      "datasets/research/budget18-en-v1/alignment_a1_train.jsonl",
+      "--validation",
+      "datasets/research/budget18-en-v1/alignment_validation.jsonl",
+      "--output",
+      "runs/research/smallthinker4__siglip2__1b__A1__budget18_s42",
+      "--initial-checkpoint",
+      "runs/research/smallthinker4__siglip2__A0_nf4__budget18_s42/best/state.pt",
+      "--epochs",
+      "1",
+      "--batch-size",
+      "16",
+      "--effective-batch-size",
+      "64",
+      "--max-length",
+      "4096",
+      "--seed",
+      "42",
+      "--eval-records",
+      "64",
+      "--eval-every",
+      "10000",
+      "--selection-metric",
+      "ce",
+      "--optimizer-backend",
+      "torch_adamw32",
+      "--reserve-gb",
+      "120"
+    ],
+    "output": "runs/research/smallthinker4__siglip2__1b__A1__budget18_s42",
+    "source_checkpoint": "runs/research/smallthinker4__siglip2__A0_nf4__budget18_s42/best/state.pt"
+  },
+  "actual_wrapper_GPU_training_validation_claimed": false,
+  "current_training_code_frozen": true,
+  "scope_limits": [
+    "This READY proves CPU guards and actual P-only source admission; completed GPU stages and later checkpoint replay require their own receipts.",
+    "Caption/SFT manifests and existing numerical profiles are unchanged."
+  ]
+}

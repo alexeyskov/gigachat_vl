@@ -1,0 +1,137 @@
+{
+  "queue_id": "smallthinker-siglip2-caption-warmup-precompute",
+  "reserve_gb": 120,
+  "stop_on_failure": true,
+  "jobs": [
+    {
+      "id": "smallthinker4__siglip2__A0_nf4__pilot_s42",
+      "argv": [
+        "--stage",
+        "A0",
+        "--recipe",
+        "4q",
+        "--manifest",
+        "datasets/research/pilot-en-v1/alignment_train.jsonl",
+        "--validation",
+        "datasets/research/pilot-en-v1/alignment_validation.jsonl",
+        "--output",
+        "runs/research/smallthinker4__siglip2__A0_nf4__pilot_s42",
+        "--batch-size",
+        "64",
+        "--effective-batch-size",
+        "64",
+        "--seed",
+        "42",
+        "--eval-records",
+        "64",
+        "--eval-every",
+        "100"
+      ],
+      "requires": [],
+      "discard_checkpoint_after_dependents": false,
+      "compact_completed": false
+    },
+    {
+      "id": "smallthinker4__siglip2__1b__A1_pilot_scienceqa_disjoint_v1_s42",
+      "argv": [
+        "--stage",
+        "A1",
+        "--recipe",
+        "1b",
+        "--manifest",
+        "datasets/research/pilot-en-v1/alignment_train.jsonl",
+        "--validation",
+        "datasets/research/pilot-en-v1/alignment_validation.jsonl",
+        "--output",
+        "runs/research/smallthinker4__siglip2__1b__A1_pilot_scienceqa_disjoint_v1_s42",
+        "--batch-size",
+        "64",
+        "--effective-batch-size",
+        "64",
+        "--seed",
+        "42",
+        "--eval-records",
+        "64",
+        "--eval-every",
+        "100",
+        "--max-records",
+        "1000",
+        "--initial-checkpoint",
+        "runs/research/smallthinker4__siglip2__A0_nf4__pilot_s42/best/state.pt"
+      ],
+      "requires": [
+        "smallthinker4__siglip2__A0_nf4__pilot_s42"
+      ],
+      "discard_checkpoint_after_dependents": false,
+      "compact_completed": false
+    },
+    {
+      "id": "smallthinker4__siglip2__1a__A1_pilot_scienceqa_disjoint_v1_s42",
+      "argv": [
+        "--stage",
+        "A1",
+        "--recipe",
+        "1a",
+        "--manifest",
+        "datasets/research/pilot-en-v1/alignment_train.jsonl",
+        "--validation",
+        "datasets/research/pilot-en-v1/alignment_validation.jsonl",
+        "--output",
+        "runs/research/smallthinker4__siglip2__1a__A1_pilot_scienceqa_disjoint_v1_s42",
+        "--batch-size",
+        "64",
+        "--effective-batch-size",
+        "64",
+        "--seed",
+        "42",
+        "--eval-records",
+        "64",
+        "--eval-every",
+        "100",
+        "--max-records",
+        "1000",
+        "--initial-checkpoint",
+        "runs/research/smallthinker4__siglip2__A0_nf4__pilot_s42/best/state.pt"
+      ],
+      "requires": [
+        "smallthinker4__siglip2__A0_nf4__pilot_s42"
+      ],
+      "discard_checkpoint_after_dependents": false,
+      "compact_completed": false
+    },
+    {
+      "id": "smallthinker4__siglip2__1c__A1_pilot_scienceqa_disjoint_v1_s42",
+      "argv": [
+        "--stage",
+        "A1",
+        "--recipe",
+        "1c",
+        "--manifest",
+        "datasets/research/pilot-en-v1/alignment_train.jsonl",
+        "--validation",
+        "datasets/research/pilot-en-v1/alignment_validation.jsonl",
+        "--output",
+        "runs/research/smallthinker4__siglip2__1c__A1_pilot_scienceqa_disjoint_v1_s42",
+        "--batch-size",
+        "64",
+        "--effective-batch-size",
+        "64",
+        "--seed",
+        "42",
+        "--eval-records",
+        "64",
+        "--eval-every",
+        "100",
+        "--max-records",
+        "1000",
+        "--initial-checkpoint",
+        "runs/research/smallthinker4__siglip2__A0_nf4__pilot_s42/best/state.pt"
+      ],
+      "requires": [
+        "smallthinker4__siglip2__A0_nf4__pilot_s42"
+      ],
+      "discard_checkpoint_after_dependents": false,
+      "compact_completed": false
+    }
+  ]
+}
