@@ -34,6 +34,9 @@
 
 # Copies downloaded with sync.sh when it is run inside the working tree.
 /experiment_results/
+/paper_results/
+/paper_metrics/
+/paper_all_final/
 /результаты_экспериментов/
 /gigachat_vl/
 .rsync-partial/
