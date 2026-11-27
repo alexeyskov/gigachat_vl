@@ -1,0 +1,458 @@
+{
+  "name": "common_pool_R4_R5_v1",
+  "configurations": 6,
+  "phase_jobs": 24,
+  "execution": {
+    "name": "common_pool_eight_experts_v1",
+    "seed": 42,
+    "methods": [
+      "R4",
+      "R5"
+    ],
+    "added_experts_per_moe": 8,
+    "new_expert": "native-shape FFN, fully trained FP32 masters",
+    "top_k": "native k unchanged, shared E+8 candidates for every valid token",
+    "masks": "no modality gates or modality eligibility restrictions; padding excluded",
+    "R4": "fresh full trainable FP32 Linear(H,E+8) router, no inherited routing bias",
+    "R5": "frozen native router and native correction bias; rank16 alpha32 LoRA residual over E+8 logits; new base logits zero",
+    "LLM": "frozen NF4 base, rank16 alpha32 dropout0.05 LoRA; frozen during A1",
+    "vision": "frozen Qwen2.5-VL-7B donor vision+merger, native bounded729 BF16 cached features",
+    "projector": "reuse proven caption-aligned MLP for each LLM; frozen thereafter",
+    "phases": {
+      "A1": {
+        "records": 256,
+        "steps": 4,
+        "objective": "caption supervised-token CE"
+      },
+      "SFT1": {
+        "records": 3529,
+        "steps": 56,
+        "objective": "0.85MM+0.15text per-stream token CE"
+      },
+      "SFT2": {
+        "records": 3529,
+        "steps": 56,
+        "objective": "same records, epoch1 shuffle, half LR"
+      },
+      "DET": {
+        "records": 3529,
+        "steps": 56,
+        "objective": "0.15OD+0.70MM+0.15text per-stream token CE"
+      }
+    },
+    "caption_exploration": "A1 only: rotate one guaranteed new candidate per token, use unchanged scores for routing weights; no forcing at SFT/evaluation",
+    "auxiliary_router_loss": null,
+    "sampling": "deterministic native top-k, no stochastic routing",
+    "optimizer": "AdamW32 foreach=False; fresh at each phase, no optimizer resume",
+    "checkpoint_policy": "one model-only best/last per phase; consumed phase weights retired after independent successor proof",
+    "reserve_disk_GiB": 32,
+    "source_sha256": {
+      "src/model/research_common_pool_v1.py": "81810f831f034a757fed59e2c151f2b56a5e59290b614d22dcb71fa56b8174d9",
+      "src/utils/research_common_pool_training_v1.py": "16767fdee111735370ec7e7e130ea7afdbd5d2022127a5c9dfcf5a4dc5e36826",
+      "scripts/run_research_common_pool_v1.py": "65bd402b76ec4b722008edba4f03bbdeda8e1c9282e669bca5facd6ecfdbdb13",
+      "scripts/research_common_pool_queue_v1.py": "fce41895b569d96411463cf7eb71760224f7f7be1aef66125c23d63543d04f6e"
+    },
+    "legacy_execution": {
+      "name": "stock_deterministic_small_v1",
+      "schema_version": 1,
+      "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+      "deterministic_algorithms": true,
+      "warn_only": false,
+      "cublas_workspace_config": ":4096:8",
+      "matmul_allow_tf32": true,
+      "torch_threads": 8,
+      "custom_kernels": false,
+      "source_sha256": {
+        "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+        "scripts/eval_research_checkpoint.py": "cf06fcf7ba5c2be4860d58781478de7b51a101c21a4bc8cd95ebb333220baff2",
+        "scripts/validate_research_checkpoint.py": "5fb59747dad1badb376e5cc95aa4f9551e35556a24067d1bf182c89140ee9626",
+        "src/eval/research_inference.py": "47576ba901c5e6ba3dc95b8c8777872d36c3ea73f2a4e0c6d74a0955df75744d",
+        "src/eval/research_selection.py": "91c05924df717ce46ef22787dfa5b4b0e45e35533096769373be62ceda3cade2",
+        "src/model/smallthinker.py": "7d5aaa551b98e7958f1a69930c797f7906d7c770084b156ba36cc5d577cbdd26",
+        "src/model/research_moe.py": "f8cbfd6a8fdb7044d25d031f0a028055cb114a7ebd71a9b4f873dcd752674c6c",
+        "src/utils/research_stock_determinism.py": "98b74c07ae75870bb75f58ab7c63ba73f45940d32855395c41dd54fd2d0c178c",
+        "scripts/run_research_stock_deterministic.py": "87403cd21df0de50f781bc12e9b13f02117ede9fd8bc5dda7fc4c63abff8ff13",
+        "scripts/eval_research_stock_deterministic.py": "c599ca276249342678be10c6d13c3333319ab3dae02572b411826b50b4866e31",
+        "scripts/validate_research_stock_deterministic.py": "af72c5d6ffd60776d6cede9e2e381e3db5cc6009d37f7410fc5ae4cdbb297292"
+      },
+      "runtime_versions": {
+        "__version__": "2.15.0+cu132",
+        "cuda": "13.2",
+        "git_version": "d0f2af8b66b20da4baa50644c0cd3f887a2eae2e",
+        "hip": null
+      },
+      "package_versions": {
+        "torch": "2.15.0",
+        "transformers": "5.15.0",
+        "peft": "0.21.2",
+        "bitsandbytes": "0.50.2",
+        "tokenizers": "0.22.2",
+        "huggingface-hub": "1.33.0"
+      },
+      "torch_version_source_sha256": "6feda231420514c053c7116e00e36d3313d6708aa1ab2a93dfa07ad4e5735184"
+    },
+    "additive_dependencies": {
+      "src/model/research_additive_visual_v1.py": "742300eb264620f97c32b15df2cd64484e049b0ea84a1569579a6ff8ca2daff0",
+      "src/utils/research_additive_runner_v1.py": "260c7730182691e9b6de92d59345556334f36b1a147ee5b429514c886b17ccb6",
+      "scripts/run_research_additive_v1.py": "e66a244f85ca2391463ec67469722d6e62d1974e27bd9b5283e994e4b0632c88",
+      "src/eval/research_giga_eot_v1.py": "273f3bea16aa6538c9f2dd898ad171fc4a7e8afa65410f04cd4f290fa9e14bc9",
+      "src/model/research_giga_loading_v2.py": "9cdc6aab3ecee6b75891d34f27da00eb27dac3b407a13466613b9359ca898ed2",
+      "src/model/research_giga_loading_v1.py": "c354198662aab43b64bf494cc98390cd973912b28c52c041ed9321cf47be6d02",
+      "src/model/research_giga_peft.py": "a7d8d776253fac1577d7c0d757d9029ce03ad3606f9493056873a3b116b145cf",
+      "src/utils/research_resource_vision_v3.py": "320558a19ecda067ecca3f4c4e88d0e7f41119a6ea63239178e3dcd149b4e304",
+      "src/utils/research_small_router_stability_v1.py": "c5f167fe5284f8781c95ba8b62ca2ec4401fb12d77adb7c1ba3b0009b83bdcc0",
+      "research_results/model_inventory.json": "452698c4a570fa4da1e81fe3f5b79ed23a22ed77a990ad99424460c22ebe39a0"
+    },
+    "detection_execution": {
+      "name": "mixed_final_SFT_detection_v1",
+      "seed": 42,
+      "epochs": 1,
+      "records": 3529,
+      "steps": 56,
+      "effective_batch": 64,
+      "source_sha256": {
+        "src/utils/research_detection_training_v1.py": "4ca38017b248c55d9f2db0abc1f617498f6c356f549a258d792f5fc57e14a5ec",
+        "src/dataset/research_detection_v1.py": "02ed7bc962817421140562306a9809621586ae64c6604655c22978c9ace6bef3",
+        "src/eval/research_detection_v1.py": "9206ff4eeaa1fec7f7b2cdc4288ff3da6c1b2a50e1208ad6ed212da49cfe20d0",
+        "scripts/run_research_detection_mix_v1.py": "3d6571a43c14f9a5fb5993abbf5df8f333c9d52fdbbf991004936722a092ea7f",
+        "scripts/validate_research_detection_mix_v1.py": "9bffb4591452d6cb2facd58ae8ca6e795c9d223a5ddace567ec2da60f9cb05ec"
+      },
+      "release_sha256": "822a202de2545d4daeaae7610d0661240473782a8e89b5f927f0987748780b2e",
+      "native_source_contract": {
+        "name": "stock_deterministic_small_v1",
+        "schema_version": 1,
+        "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+        "deterministic_algorithms": true,
+        "warn_only": false,
+        "cublas_workspace_config": ":4096:8",
+        "matmul_allow_tf32": true,
+        "torch_threads": 8,
+        "custom_kernels": false,
+        "source_sha256": {
+          "scripts/run_research_stage.py": "f7fd22d1c94fb337af2be60d3324415b2b2c8cd3d62e9799f2da4c05ace87cfc",
+          "scripts/eval_research_checkpoint.py": "cf06fcf7ba5c2be4860d58781478de7b51a101c21a4bc8cd95ebb333220baff2",
+          "scripts/validate_research_checkpoint.py": "5fb59747dad1badb376e5cc95aa4f9551e35556a24067d1bf182c89140ee9626",
+          "src/eval/research_inference.py": "47576ba901c5e6ba3dc95b8c8777872d36c3ea73f2a4e0c6d74a0955df75744d",
+          "src/eval/research_selection.py": "91c05924df717ce46ef22787dfa5b4b0e45e35533096769373be62ceda3cade2",
+          "src/model/smallthinker.py": "7d5aaa551b98e7958f1a69930c797f7906d7c770084b156ba36cc5d577cbdd26",
+          "src/model/research_moe.py": "f8cbfd6a8fdb7044d25d031f0a028055cb114a7ebd71a9b4f873dcd752674c6c",
+          "src/utils/research_stock_determinism.py": "98b74c07ae75870bb75f58ab7c63ba73f45940d32855395c41dd54fd2d0c178c",
+          "scripts/run_research_stock_deterministic.py": "87403cd21df0de50f781bc12e9b13f02117ede9fd8bc5dda7fc4c63abff8ff13",
+          "scripts/eval_research_stock_deterministic.py": "c599ca276249342678be10c6d13c3333319ab3dae02572b411826b50b4866e31",
+          "scripts/validate_research_stock_deterministic.py": "af72c5d6ffd60776d6cede9e2e381e3db5cc6009d37f7410fc5ae4cdbb297292"
+        },
+        "runtime_versions": {
+          "__version__": "2.15.0+cu132",
+          "cuda": "13.2",
+          "git_version": "d0f2af8b66b20da4baa50644c0cd3f887a2eae2e",
+          "hip": null
+        },
+        "package_versions": {
+          "torch": "2.15.0",
+          "transformers": "5.15.0",
+          "peft": "0.21.2",
+          "bitsandbytes": "0.50.2",
+          "tokenizers": "0.22.2",
+          "huggingface-hub": "1.33.0"
+        },
+        "torch_version_source_sha256": "6feda231420514c053c7116e00e36d3313d6708aa1ab2a93dfa07ad4e5735184"
+      },
+      "backbone_source_sha256": {
+        "src/model/research_giga_loading_v1.py": "c354198662aab43b64bf494cc98390cd973912b28c52c041ed9321cf47be6d02",
+        "src/model/research_giga_loading_v2.py": "9cdc6aab3ecee6b75891d34f27da00eb27dac3b407a13466613b9359ca898ed2",
+        "src/model/research_giga_peft.py": "a7d8d776253fac1577d7c0d757d9029ce03ad3606f9493056873a3b116b145cf",
+        "src/model/research_quantization.py": "b588541b3232ca522acaeae2d1949cc2aac29cf9608c2d8f99afc8faad129830",
+        "src/utils/research_optim.py": "330207934e7e20b5a3711b7cf271a7a10806630f5fcaf7b3910b1d2fa2784c2f",
+        "src/utils/research_resource_vision_v3.py": "320558a19ecda067ecca3f4c4e88d0e7f41119a6ea63239178e3dcd149b4e304",
+        "src/utils/research_small_router_stability_v1.py": "c5f167fe5284f8781c95ba8b62ca2ec4401fb12d77adb7c1ba3b0009b83bdcc0",
+        "src/utils/research_small_budget_v3.py": "1f3803cd2e1fec644f70a0056151f21910510cc8b9858f694b9c5e8d37db7811",
+        "src/eval/research_text_generation.py": "b311a58969a28888169ed965c5d919b9dee2ddf4743787655e54af9d33182e0e",
+        "src/utils/research_budget_stream_save_v1.py": "a4499784699f09eb2e820fd92ca0723e53d158673a702e959c220b9278515b4a",
+        "src/utils/research_lossless_delta.py": "e53d1a39082ed022ef07d908b148bd18fa2798af65df42f16d0cbb98e53175a3",
+        "src/dataset/vision_cache.py": "47bfa012cffdc88ab960f036c18407ad1f7215b69a78267b623dc33bebd4d808",
+        "research_results/model_inventory.json": "452698c4a570fa4da1e81fe3f5b79ed23a22ed77a990ad99424460c22ebe39a0"
+      },
+      "objective": {
+        "weights": {
+          "detection": 0.15,
+          "multimodal_replay": 0.7,
+          "text": 0.15
+        },
+        "normalization": "separate whole-effective-batch supervised-token denominators; absent stream contributes zero without renormalization"
+      },
+      "coordinate_system": "xyxy_normalized_1000",
+      "vision_and_MLP_projector": "frozen",
+      "initialization": "best old SFT by original internal116; fresh optimizer, half original stage LR",
+      "checkpoints": "one completed model-only last saved BEFORE evaluation; best/last share the same physical weights after scoring"
+    },
+    "legacy_release_sha256": "910448c7fd680ec949d6521e32716aee2832a99fc534d185f0a06b226c0ec1c0"
+  },
+  "jobs": [
+    {
+      "id": "smallthinker4__qwen25__R4__common8_v1__A1",
+      "arm": "smallthinker4__qwen25__R4__common8_v1",
+      "phase": "A1",
+      "model_key": "smallthinker4",
+      "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R4__common8_v1/A1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/additive_visual_v1/projectors/smallthinker4__qwen25.pt"
+    },
+    {
+      "id": "smallthinker4__qwen25__R4__common8_v1__SFT1",
+      "arm": "smallthinker4__qwen25__R4__common8_v1",
+      "phase": "SFT1",
+      "model_key": "smallthinker4",
+      "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R4__common8_v1/SFT1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R4__common8_v1/A1/last/state.pt"
+    },
+    {
+      "id": "smallthinker4__qwen25__R4__common8_v1__SFT2",
+      "arm": "smallthinker4__qwen25__R4__common8_v1",
+      "phase": "SFT2",
+      "model_key": "smallthinker4",
+      "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R4__common8_v1/SFT2",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R4__common8_v1/SFT1/last/state.pt"
+    },
+    {
+      "id": "smallthinker4__qwen25__R4__common8_v1__DET",
+      "arm": "smallthinker4__qwen25__R4__common8_v1",
+      "phase": "DET",
+      "model_key": "smallthinker4",
+      "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R4__common8_v1/DET",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R4__common8_v1/SFT2/last/state.pt"
+    },
+    {
+      "id": "smallthinker4__qwen25__R5__common8_v1__A1",
+      "arm": "smallthinker4__qwen25__R5__common8_v1",
+      "phase": "A1",
+      "model_key": "smallthinker4",
+      "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R5__common8_v1/A1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/additive_visual_v1/projectors/smallthinker4__qwen25.pt"
+    },
+    {
+      "id": "smallthinker4__qwen25__R5__common8_v1__SFT1",
+      "arm": "smallthinker4__qwen25__R5__common8_v1",
+      "phase": "SFT1",
+      "model_key": "smallthinker4",
+      "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R5__common8_v1/SFT1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R5__common8_v1/A1/last/state.pt"
+    },
+    {
+      "id": "smallthinker4__qwen25__R5__common8_v1__SFT2",
+      "arm": "smallthinker4__qwen25__R5__common8_v1",
+      "phase": "SFT2",
+      "model_key": "smallthinker4",
+      "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R5__common8_v1/SFT2",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R5__common8_v1/SFT1/last/state.pt"
+    },
+    {
+      "id": "smallthinker4__qwen25__R5__common8_v1__DET",
+      "arm": "smallthinker4__qwen25__R5__common8_v1",
+      "phase": "DET",
+      "model_key": "smallthinker4",
+      "model": "Tiiny/SmallThinker-4BA0.6B-Instruct",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R5__common8_v1/DET",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/smallthinker4__qwen25__R5__common8_v1/SFT2/last/state.pt"
+    },
+    {
+      "id": "lfm25__qwen25__R4__common8_v1__A1",
+      "arm": "lfm25__qwen25__R4__common8_v1",
+      "phase": "A1",
+      "model_key": "lfm25",
+      "model": "LiquidAI/LFM2.5-8B-A1B",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R4__common8_v1/A1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/additive_visual_v1/projectors/lfm25__qwen25.pt"
+    },
+    {
+      "id": "lfm25__qwen25__R4__common8_v1__SFT1",
+      "arm": "lfm25__qwen25__R4__common8_v1",
+      "phase": "SFT1",
+      "model_key": "lfm25",
+      "model": "LiquidAI/LFM2.5-8B-A1B",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R4__common8_v1/SFT1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R4__common8_v1/A1/last/state.pt"
+    },
+    {
+      "id": "lfm25__qwen25__R4__common8_v1__SFT2",
+      "arm": "lfm25__qwen25__R4__common8_v1",
+      "phase": "SFT2",
+      "model_key": "lfm25",
+      "model": "LiquidAI/LFM2.5-8B-A1B",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R4__common8_v1/SFT2",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R4__common8_v1/SFT1/last/state.pt"
+    },
+    {
+      "id": "lfm25__qwen25__R4__common8_v1__DET",
+      "arm": "lfm25__qwen25__R4__common8_v1",
+      "phase": "DET",
+      "model_key": "lfm25",
+      "model": "LiquidAI/LFM2.5-8B-A1B",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R4__common8_v1/DET",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R4__common8_v1/SFT2/last/state.pt"
+    },
+    {
+      "id": "lfm25__qwen25__R5__common8_v1__A1",
+      "arm": "lfm25__qwen25__R5__common8_v1",
+      "phase": "A1",
+      "model_key": "lfm25",
+      "model": "LiquidAI/LFM2.5-8B-A1B",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R5__common8_v1/A1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/additive_visual_v1/projectors/lfm25__qwen25.pt"
+    },
+    {
+      "id": "lfm25__qwen25__R5__common8_v1__SFT1",
+      "arm": "lfm25__qwen25__R5__common8_v1",
+      "phase": "SFT1",
+      "model_key": "lfm25",
+      "model": "LiquidAI/LFM2.5-8B-A1B",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R5__common8_v1/SFT1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R5__common8_v1/A1/last/state.pt"
+    },
+    {
+      "id": "lfm25__qwen25__R5__common8_v1__SFT2",
+      "arm": "lfm25__qwen25__R5__common8_v1",
+      "phase": "SFT2",
+      "model_key": "lfm25",
+      "model": "LiquidAI/LFM2.5-8B-A1B",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R5__common8_v1/SFT2",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R5__common8_v1/SFT1/last/state.pt"
+    },
+    {
+      "id": "lfm25__qwen25__R5__common8_v1__DET",
+      "arm": "lfm25__qwen25__R5__common8_v1",
+      "phase": "DET",
+      "model_key": "lfm25",
+      "model": "LiquidAI/LFM2.5-8B-A1B",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R5__common8_v1/DET",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/lfm25__qwen25__R5__common8_v1/SFT2/last/state.pt"
+    },
+    {
+      "id": "giga31__qwen25__R4__common8_v1__A1",
+      "arm": "giga31__qwen25__R4__common8_v1",
+      "phase": "A1",
+      "model_key": "giga31",
+      "model": "ai-sage/GigaChat3.1-10B-A1.8B-bf16",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R4__common8_v1/A1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/additive_visual_v1/projectors/giga31__qwen25.pt"
+    },
+    {
+      "id": "giga31__qwen25__R4__common8_v1__SFT1",
+      "arm": "giga31__qwen25__R4__common8_v1",
+      "phase": "SFT1",
+      "model_key": "giga31",
+      "model": "ai-sage/GigaChat3.1-10B-A1.8B-bf16",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R4__common8_v1/SFT1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R4__common8_v1/A1/last/state.pt"
+    },
+    {
+      "id": "giga31__qwen25__R4__common8_v1__SFT2",
+      "arm": "giga31__qwen25__R4__common8_v1",
+      "phase": "SFT2",
+      "model_key": "giga31",
+      "model": "ai-sage/GigaChat3.1-10B-A1.8B-bf16",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R4__common8_v1/SFT2",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R4__common8_v1/SFT1/last/state.pt"
+    },
+    {
+      "id": "giga31__qwen25__R4__common8_v1__DET",
+      "arm": "giga31__qwen25__R4__common8_v1",
+      "phase": "DET",
+      "model_key": "giga31",
+      "model": "ai-sage/GigaChat3.1-10B-A1.8B-bf16",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R4",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R4__common8_v1/DET",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R4__common8_v1/SFT2/last/state.pt"
+    },
+    {
+      "id": "giga31__qwen25__R5__common8_v1__A1",
+      "arm": "giga31__qwen25__R5__common8_v1",
+      "phase": "A1",
+      "model_key": "giga31",
+      "model": "ai-sage/GigaChat3.1-10B-A1.8B-bf16",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R5__common8_v1/A1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/additive_visual_v1/projectors/giga31__qwen25.pt"
+    },
+    {
+      "id": "giga31__qwen25__R5__common8_v1__SFT1",
+      "arm": "giga31__qwen25__R5__common8_v1",
+      "phase": "SFT1",
+      "model_key": "giga31",
+      "model": "ai-sage/GigaChat3.1-10B-A1.8B-bf16",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R5__common8_v1/SFT1",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R5__common8_v1/A1/last/state.pt"
+    },
+    {
+      "id": "giga31__qwen25__R5__common8_v1__SFT2",
+      "arm": "giga31__qwen25__R5__common8_v1",
+      "phase": "SFT2",
+      "model_key": "giga31",
+      "model": "ai-sage/GigaChat3.1-10B-A1.8B-bf16",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R5__common8_v1/SFT2",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R5__common8_v1/SFT1/last/state.pt"
+    },
+    {
+      "id": "giga31__qwen25__R5__common8_v1__DET",
+      "arm": "giga31__qwen25__R5__common8_v1",
+      "phase": "DET",
+      "model_key": "giga31",
+      "model": "ai-sage/GigaChat3.1-10B-A1.8B-bf16",
+      "vision": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "method": "R5",
+      "output": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R5__common8_v1/DET",
+      "source_checkpoint": "/workspace/gigachat_vl/runs/research/common_pool_v1/giga31__qwen25__R5__common8_v1/SFT2/last/state.pt"
+    }
+  ],
+  "initialization": "fresh pinned NF4 LLM and experts, retained aligned P only; no old SFT weights imported",
+  "old18_weights": "not modified or retired; paper_v1 export remains available"
+}

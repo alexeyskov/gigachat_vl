@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
+import time
 
 import pytest
 
@@ -39,13 +41,19 @@ def remote(tmp_path):
             run.mkdir(parents=True)
             (run / 'last').symlink_to('../../weights')
     key = tmp_path / 'key with spaces \' " \\ $(touch DO_NOT_CREATE)'
-    key.touch()
+    subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(key)],check=True)
     executable = tmp_path / 'bin/ssh'
     executable.parent.mkdir()
     executable.write_text('''#!/usr/bin/env python3
 import json, os, subprocess, sys
 from pathlib import Path
 args = sys.argv[1:]
+assert 'BatchMode=yes' in args
+assert 'IdentityAgent='+os.environ['SSH_AUTH_SOCK'] in args
+assert Path(os.environ['SSH_AUTH_SOCK']).is_socket()
+assert subprocess.run(['ssh-add','-l'],capture_output=True).returncode == 0
+with open(os.environ['SHIM_AGENT_LOG'], 'a') as log:
+    log.write(json.dumps(dict(socket=os.environ['SSH_AUTH_SOCK'],pid=int(os.environ['SSH_AGENT_PID']))) + '\\n')
 with open(os.environ['SHIM_LOG'], 'a') as log:
     log.write(json.dumps(args) + '\\n')
 while args and args[0].startswith('-'):
@@ -97,7 +105,8 @@ else:
     env = dict(os.environ, PATH=str(executable.parent)+os.pathsep+os.environ['PATH'],
                SYNC_SSH_KEY=str(key), SYNC_SSH_HOST='fixture.invalid', SYNC_SSH_PORT='23303',
                SHIM_ROOT=str(root), SHIM_RSYNC=RSYNC, SHIM_LOG=str(tmp_path / 'ssh.jsonl'),
-               SYNC_RETRY_DELAY='0', SYNC_IO_TIMEOUT='5', LC_ALL='C')
+               SYNC_RETRY_DELAY='0', SYNC_IO_TIMEOUT='5', LC_ALL='C',
+               SHIM_AGENT_LOG=str(tmp_path/'agents.jsonl'))
     destination = tmp_path / 'local result with spaces and \'" quotes'
     return root, destination, env
 
@@ -178,7 +187,8 @@ def test_connection_cut_mid_file_automatically_retries_and_resumes(remote):
     payload = os.urandom(8 * 1024 * 1024)
     (root / 'all-final/weights/large.pt').write_bytes(payload)
     env['SHIM_CUT_STREAM_ONCE'] = str(root / 'network-cut.marker')
-    result = invoke(remote)
+    result = invoke(remote,check=False)
+    assert result.returncode == 0, result.stderr
     assert (destination / 'weights/large.pt').read_bytes() == payload
     assert '2/5' in result.stderr
     assert statistic_bytes(result.stdout, 'Matched data') > 128*1024
@@ -214,3 +224,56 @@ def test_conflicting_profiles_rejected_before_ssh(remote):
     result = invoke(remote, '--metrics-only', '--all-final', check=False)
     assert result.returncode != 0
     assert not Path(remote[2]['SHIM_LOG']).exists()
+
+
+def assert_agent_stopped(info):
+    assert not Path(info['socket']).exists()
+    assert not Path(info['socket']).parent.exists()
+    with pytest.raises(ProcessLookupError):os.kill(info['pid'],0)
+
+
+def test_encrypted_key_unlocked_once_and_reused_after_connection_cut(remote):
+    root,destination,env=remote
+    key=Path(env['SYNC_SSH_KEY']);key.unlink();key.with_suffix('.pub').unlink()
+    phrase='throwaway test key passphrase'
+    subprocess.run(['ssh-keygen','-q','-t','ed25519','-N',phrase,'-f',str(key)],check=True)
+    askpass=root/'askpass'
+    askpass.write_text("#!/usr/bin/env python3\nimport os\nwith open(os.environ['ASKPASS_COUNT'],'a') as f:f.write('asked\\n')\nprint('throwaway test key passphrase')\n")
+    askpass.chmod(0o700)
+    env.update(SSH_ASKPASS=str(askpass),SSH_ASKPASS_REQUIRE='force',DISPLAY=':test',
+               ASKPASS_COUNT=str(root/'askpass_count'),SHIM_CUT_STREAM_ONCE=str(root/'cut.marker'))
+    (root/'all-final/weights/large.pt').write_bytes(os.urandom(2*1024*1024))
+    result=invoke(remote)
+    assert (root/'askpass_count').read_text().splitlines()==['asked']
+    assert '2/5' in result.stderr
+    agents=[json.loads(line) for line in Path(env['SHIM_AGENT_LOG']).read_text().splitlines()]
+    assert len({item['socket'] for item in agents})==len({item['pid'] for item in agents})==1
+    assert_agent_stopped(agents[0])
+
+
+def test_private_agent_is_removed_after_transfer_failure(remote):
+    remote[2].update(SHIM_FAIL_ALWAYS='23')
+    result=invoke(remote,check=False)
+    assert result.returncode!=0
+    agent=json.loads(Path(remote[2]['SHIM_AGENT_LOG']).read_text().splitlines()[0])
+    assert_agent_stopped(agent)
+
+
+def test_existing_external_agent_is_not_modified_or_stopped(remote):
+    with tempfile.TemporaryDirectory(prefix='sync-test-',dir='/tmp') as directory:
+        socket=Path(directory)/'outer.sock'
+        outer=subprocess.Popen(['ssh-agent','-D','-a',str(socket)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(100):
+                if socket.is_socket():break
+                time.sleep(.01)
+            assert socket.is_socket()
+            env=remote[2];env.update(SSH_AUTH_SOCK=str(socket),SSH_AGENT_PID=str(outer.pid))
+            invoke(remote)
+            assert outer.poll() is None and socket.is_socket()
+            assert subprocess.run(['ssh-add','-l'],env=env,capture_output=True).returncode==1
+            agents=[json.loads(line) for line in Path(env['SHIM_AGENT_LOG']).read_text().splitlines()]
+            assert all(item['pid']!=outer.pid and item['socket']!=str(socket) for item in agents)
+            assert_agent_stopped(agents[0])
+        finally:
+            outer.terminate();outer.wait(timeout=5)

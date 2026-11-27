@@ -28,6 +28,7 @@
 /configs/research/*.lock
 /RESEARCH_STATUS.md
 /ADDITIVE_STATUS.md
+/RESEARCH_COMMON_POOL_STATUS.md
 
 # Downloaded benchmark checkout. Curated third_party metric code stays versioned.
 /third_party/VLMEvalKit/

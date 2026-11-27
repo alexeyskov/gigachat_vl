@@ -38,7 +38,18 @@ def collect_jobs(plan):
             reload_progress=read(run/'reload_progress.json')))
     return jobs
 
-def active_phase(queue,legacy,detection=None):
+def active_phase(queue,legacy,detection=None,common=None):
+    if common:
+        name=common.get('active_job')
+        row=common.get('jobs',{}).get(name,{})
+        if common.get('status')=='completed':return dict(phase='common_pool_completed',job=None,progress=None)
+        root=ROOT/'runs/research/common_pool_v1'
+        if name:
+            arm,phase=name.rsplit('__',1);root=root/arm/phase
+        progress=read(root/'test_progress.json') or read(root/'evaluation_progress.json')
+        metrics=last(root/'metrics.jsonl')
+        if metrics and row.get('status')=='train' and metrics.get('event')=='train':progress=metrics
+        return dict(phase='common_pool',job=name,worker=row.get('status'),progress=progress,status=common.get('status'))
     if detection:
         name=detection.get('active_job')
         root=ROOT/'runs/research/detection_mix_v1'/str(name)
@@ -70,12 +81,14 @@ def run():
         jobs=collect_jobs(plan)
         gpu=subprocess.run(['nvidia-smi','--query-gpu=utilization.gpu,memory.used,memory.total','--format=csv,noheader'],capture_output=True,text=True,timeout=10)
         services=subprocess.run(['supervisorctl','status'],capture_output=True,text=True,timeout=10)
-        filtered=[line for line in services.stdout.splitlines() if line.startswith(('research-additive-','research-fixed-','research-capacity-','research-detection-','research-control-tail-memory-'))]
+        filtered=[line for line in services.stdout.splitlines() if line.startswith(('research-additive-','research-fixed-','research-capacity-','research-detection-','research-control-tail-memory-','research-common-pool-'))]
         legacy=read(ROOT/'runs/research/budget18_queue_state_v1.json',{})
         oldjob=legacy.get('active_job');oldprogress=last(ROOT/'runs/research'/str(oldjob)/'metrics.jsonl') if oldjob else None
         detection_plan=read(ROOT/'configs/research/detection_mix_plan_v1.json')
         detection=read(ROOT/'runs/research/detection_mix_v1/queue_state.json',{})
-        active=active_phase(queue,legacy,detection)
+        common=read(ROOT/'runs/research/common_pool_v1/queue_state.json',{})
+        common_report=read(ROOT/'research_results/common_pool_v1/status.json',{})
+        active=active_phase(queue,legacy,detection,common)
         detection_report=read(ROOT/'research_results/detection_mix_v1/current_metrics.json',{})
         controls=[dict(run=c['id'],completed=bool(read(Path(c['run'])/'completed.json'))) for c in plan.get('controls',[])]
         trained=sum(j['stage']=='SFT' and bool(j['completed']) for j in jobs)
@@ -92,12 +105,20 @@ def run():
             active=active,full_controls=controls,full_controls_trained=sum(c['completed'] for c in controls),
             queue=queue,jobs=jobs,gpu=gpu.stdout.strip(),services=filtered,
             legacy_current_job=oldjob,legacy_progress=oldprogress,
-            detection_mix=dict(queue=detection,report=detection_report,scheduled=bool(detection_plan)))
+            detection_mix=dict(queue=detection,report=detection_report,scheduled=bool(detection_plan)),
+            common_pool=dict(queue=common,report=common_report))
         _atomic_json(OUT/'live_status.json',value)
         lines=['# Новая серия: дополнительные визуальные блоки','',value['updated_UTC'],'',
             f'Этапов SFT обучено: {trained}/{total}; независимо восстановлено и проверено: {replayed}/{total}.',
             'Плюс 6 native full-finetune контролей. Старые common-pool результаты учитываются отдельно.','',
             'GPU: '+gpu.stdout.strip(),'', '```',*filtered,'```','']
+        if common:
+            progress=active.get('progress') or {}
+            lines[0:0]=['# R4/R5: расширение общего top-k пула', '',
+                f"Состояние: {common.get('status')}; завершено {common_report.get('final_configurations_completed',0)}/6 вариантов, {common_report.get('phase_jobs_completed',0)}/24 этапов.",
+                f"Активный запуск: `{active.get('job')}`; worker {active.get('worker','—')}; шаг {progress.get('step','—')}/{progress.get('total_steps','—')}.",
+                'Qwen encoder; восемь новых FFN на MoE-слой, общий top-k, без modality masks. Статус: `RESEARCH_COMMON_POOL_STATUS.md`.', '',
+                '## Предыдущая завершённая матрица', '']
         if active['phase']=='full_control_tail':
             progress=active['progress'] or {}
             lines[8:8]=[f"Сейчас выполняется последний full-train контроль: `{active['job']}`; событие {progress.get('event','—')}, шаг {progress.get('step','—')}/{progress.get('total_steps','—')}.",
@@ -135,13 +156,16 @@ def run():
                     ce=job['multimodal_ce'] or {}
                     lines.append(f"| {job['run']} | {proof['score']:.4f} | {ce.get('ce','—')} |")
         lines += ['', 'Подробности: `research_results/additive_visual_v1/live_status.json`; протокол: `RESEARCH_PIPELINE.md`.',
-                  'Активны только фиксированные блоки, с масками и без. Отдельный роутер исключён. Caption loss не является точностью на VQA.','']
+                  ('В новой серии R4/R5 активен общий router. Предыдущая серия R1/R3 использовала фиксированные блоки.' if common else
+                   'Активны только фиксированные блоки, с масками и без. Отдельный роутер исключён.')+
+                  ' Caption loss не является точностью на VQA.','']
         target=ROOT/'ADDITIVE_STATUS.md';temp=target.with_suffix('.tmp');temp.write_text('\n'.join(lines));temp.replace(target)
         if time.monotonic()-last_summary>120:
             try:
                 scripts=[]
                 if replayed==total==25:scripts+=['scripts/refresh_research_full_control_eot_v5.py','scripts/summarize_research_capacity_v5.py']
-                if detection_plan:scripts+=['scripts/report_research_detection_mix_v1.py']
+                if detection_plan:scripts+=['scripts/report_research_results_v2.py']
+                elif common:scripts+=['scripts/report_research_common_pool_v1.py']
                 for script in scripts:
                     subprocess.run([sys.executable,script],cwd=ROOT,check=True,timeout=45,capture_output=True,text=True)
             except (subprocess.SubprocessError,OSError) as error:

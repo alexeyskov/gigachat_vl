@@ -10,6 +10,9 @@ usage() {
 Пример: bash sync.sh ./paper_results
 Источник: root@162.43.170.108:23303, /workspace/gigachat_vl/exports/paper_v1/.
 Ключ: ~/.ssh/yacloud. Скрипт запускается на вашем компьютере.
+При запуске один раз введите пароль SSH-ключа. Отдельный временный ssh-agent
+держит разблокированный ключ до завершения скрипта, включая сетевые повторы.
+При выходе агент завершается; пароль не записывается в файл или переменную.
 
 По умолчанию: метрики/предсказания всех 18 вариантов и ровно один финальный
 чекпоинт каждого варианта. Веса сжимаются без потерь при передаче средствами
@@ -40,7 +43,7 @@ rsync, а на компьютере сохраняются в исходном �
 Также поддерживаются SYNC_SSH_HOST и SYNC_SSH_USER.
 Настройки повторов: SYNC_MAX_ATTEMPTS=5, SYNC_RETRY_DELAY=10 (секунды),
 SYNC_IO_TIMEOUT=120 (секунды без обмена данными).
-Для работы нужны bash, ssh и rsync на локальном компьютере.
+Для работы нужны bash, ssh, rsync, ssh-agent, ssh-add и mktemp на вашем компьютере.
 HELP
 }
 
@@ -82,7 +85,7 @@ done
 
 (( destination_set == 1 )) || fail 'Укажите каталог назначения: bash sync.sh ./paper_results'
 [[ -n "$destination" ]] || fail 'Пустой локальный каталог.'
-for program in ssh rsync; do
+for program in ssh rsync ssh-agent ssh-add mktemp; do
     command -v "$program" >/dev/null 2>&1 || fail "Не найдена команда $program."
 done
 
@@ -114,7 +117,49 @@ mkdir -p -- "$destination"
 destination=$(cd -- "$destination" && pwd -P)
 [[ "$destination" != / ]] || fail 'Корень файловой системы нельзя использовать как каталог копии.'
 
+# A private foreground agent stays a child of this script. No eval, passphrase
+# variables, key copies, or changes to the user's existing agent/keychain.
+agent_dir=''
+agent_pid=''
+cleanup_agent() {
+    local result=$?
+    trap - EXIT
+    if [[ -n "$agent_pid" ]]; then
+        kill "$agent_pid" 2>/dev/null || true
+        wait "$agent_pid" 2>/dev/null || true
+    fi
+    if [[ -n "$agent_dir" ]]; then
+        rm -f -- "$agent_dir/agent.sock"
+        rmdir -- "$agent_dir" 2>/dev/null || true
+    fi
+    exit "$result"
+}
+interrupted() {
+    printf '\nПередача остановлена. Для докачки повторите команду с тем же каталогом: %s\n' "$destination" >&2
+    exit "$1"
+}
+trap cleanup_agent EXIT
+trap 'interrupted 130' INT
+trap 'interrupted 143' TERM
+
+# /tmp keeps the Unix socket path short even with macOS's long TMPDIR paths.
+agent_dir=$(mktemp -d /tmp/llm2vlm-sync.XXXXXXXX) || fail 'Не удалось создать каталог временного SSH-агента.'
+export SSH_AUTH_SOCK="$agent_dir/agent.sock"
+ssh-agent -D -a "$SSH_AUTH_SOCK" >/dev/null 2>&1 &
+agent_pid=$!
+export SSH_AGENT_PID="$agent_pid"
+agent_ready=0
+for ((agent_wait=0; agent_wait<100; agent_wait++)); do
+    if [[ -S "$SSH_AUTH_SOCK" ]]; then agent_ready=1; break; fi
+    kill -0 "$agent_pid" 2>/dev/null || break
+    sleep .05
+done
+(( agent_ready )) || fail 'Не удалось запустить временный SSH-агент.'
+printf '\nРазблокировка SSH-ключа один раз на время этой синхронизации:\n'
+ssh-add -q -- "$ssh_key" || fail 'Ключ не добавлен в SSH-агент; скачивание не начиналось.'
+
 ssh_args=(-p "$ssh_port" -i "$ssh_key" -o IdentitiesOnly=yes
+          -o "IdentityAgent=$SSH_AUTH_SOCK" -o BatchMode=yes -o ForwardAgent=no
           -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=6)
 remote="${ssh_user}@${ssh_host}"
 
@@ -161,13 +206,6 @@ transfer_bundle() {
         "${remote}:${remote_path}/" "$destination/"
 }
 
-interrupted() {
-    printf '\nПередача остановлена. Для докачки повторите команду с тем же каталогом: %s\n' "$destination" >&2
-    exit "$1"
-}
-trap 'interrupted 130' INT
-trap 'interrupted 143' TERM
-
 attempt=1
 while :; do
     if transfer_bundle; then
@@ -175,10 +213,10 @@ while :; do
     else
         transfer_status=$?
     fi
-    # Retry transport failures only. Disk/permission errors and explicit
-    # interrupts need attention or a later manual restart, not a retry loop.
+    # A cut compressed stream can also surface as a protocol error (code2).
+    # Disk/permission errors and explicit interrupts are not retried.
     retryable=0
-    case "$transfer_status" in 10|12|30|35|255) retryable=1 ;; esac
+    case "$transfer_status" in 2|10|12|30|35|255) retryable=1 ;; esac
     if (( dry_run || ! retryable || attempt >= max_attempts )); then
         printf '\nПередача не завершена (код %s). Полученные части сохранены.\n' "$transfer_status" >&2
         printf 'Для докачки повторите ту же команду с каталогом: %s\n' "$destination" >&2

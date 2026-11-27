@@ -136,3 +136,43 @@ V5 применяет seed offset и private import binding совместно �
 Проверка опубликованного loss Qwen3.5/3.6/3.8 и SFT Qwen3-VL описана в разделе «Сверка с опубликованным обучением Qwen» в [DETECTION_PIPELINE.md](DETECTION_PIPELINE.md). Сохранён исходный CE-протокол: отдельная подтверждённая формула IoU/GIoU loss для генеративных bbox в изученных источниках не найдена. Машинный отчёт CPU-проверки supervision: `research_results/qwen_detection_strategy_v1/report.json`.
 
 По последнему уточнению пользователя ко всем18 конфигурациям добавляется один финальный SFT-проход на450 detection +2550 MM replay +529 text. OCR сохраняется; первые alignment стадии не повторяются. Координаты bbox_2d — целые0..1000, JSON label/bbox_2d. Текущий full-train заканчивает естественно. Новые результаты и веса отделены от предыдущей матрицы. Точная спецификация данных, objective, источников, валидации и хранения: [DETECTION_PIPELINE.md](DETECTION_PIPELINE.md).
+
+## Дополнение от 26 ноября: R4/R5, общий пул из E+8 экспертов
+
+Пользователь добавил шесть конфигураций: SmallThinker-4B-A0.6B, LFM2.5-8B-A1B и GigaChat3.1-10B-A1.8B, каждая с R4 и R5. Используется только frozen визуальный энкодер и merger донора Qwen2.5-VL-7B-Instruct, preprocessing `qwen_native_bounded_729` и тот же BF16 feature cache. GPT-OSS и дополнительные seed не запускаются; seed=42.
+
+В каждом существующем MoE-слое добавляются **8 новых FFN-экспертов нативного размера**. Это расширение пула routed FFN, в отличие от компактных дополнительных causal Transformer-блоков прежних R1/R3. Поэтому число trainable parameters обязательно показывается в сравнении; одинаковая стоимость методов не предполагается.
+
+| LLM | Исходных routed экспертов на MoE-слой | После расширения | Выбирается на токен |
+| --- | ---: | ---: | ---: |
+| SmallThinker | 32 | 40 | 4 |
+| LFM2.5 | 32 | 40 | 4 |
+| GigaChat3.1 | 64 | 72 | 4 |
+
+Dense-слои и shared experts не расширяются. Новый пул использует один общий top-k с исходным `k`: новые эксперты конкурируют со старыми за четыре места. Выбор детерминированный, по правилам backbone; stochastic sampling не вводится. Все валидные текстовые и визуальные токены могут выбирать любые эксперты, в том числе в text-only запросах. Modality masks/gates и отдельный visual top-k отсутствуют; исключается только padding. Обязательное добавочное выполнение новых экспертов поверх старого top-k здесь не применяется.
+
+- **R4:** frozen NF4 языковая база + LoRA r16/alpha32/dropout0.05; восемь новых FFN обучаются полностью. Исходный router заменяется новым trainable FP32 `Linear(H,E+8)` со случайной инициализацией. Корректирующие routing bias исходного router обнуляются. Обучаются новые FFN, новый router и языковые LoRA; исходные языковые веса заморожены.
+- **R5:** та же NF4 база, LoRA и новые FFN. Исходные router weights и нативные correction bias заморожены. Вычисляются `concat(native_logits, zeros(8)) + (32/16) B(Ah)`, где `A: H→16`, `B: 16→E+8` — trainable LoRA router, B первоначально нулевой. Router scoring выполняется в FP32; повторно квантовать этот небольшой router не требуется. Сохраняются исходные logits старых экспертов, но итоговый top-k/нормированные веса могут измениться уже из-за появления восьми новых кандидатов.
+
+Нативные правила weighting/scaling сохранены: normalized sigmoid SmallThinker с проверенным fallback только при нулевом знаменателе, sigmoid/correction bias/normalization LFM и GigaChat. Общий gradient clipping=1.0, finite-loss/gradient guards. Новый router R4 и LoRA router R5 не являются LoRA-адаптерами MLP-проектора: это разные части модели.
+
+Начало каждого нового эксперимента — исходная pinned LLM и свежие FFN/LoRA. Из старых экспериментов переносятся **только** четыре тензора caption-aligned MLP-проектора, с проверкой SHA, base/vision revisions и feature-cache fingerprint. Сам проектор заморожен на всех новых этапах. Готовые SFT-веса R1/R2/R3 не используются для инициализации R4/R5.
+
+| Этап каждого варианта | Данные и budget | Trainable |
+| --- | --- | --- |
+| A1 | 256 caption TRAIN, 4 updates | Новые FFN и router R4 / LoRA router R5; языковые LoRA frozen |
+| SFT1 | 3000 MM + 529 text TRAIN, 56 updates | Новые FFN, соответствующий router, языковые LoRA |
+| SFT2 | Те же 3529 TRAIN-записей, shuffle seed43, 56 updates | Те же параметры, LR вдвое меньше |
+| DET | 450 detection + 2550 MM replay + 529 text, 56 updates | Те же параметры, LR=5e-5 |
+
+Это **6 экспериментов, 24 этапа, 1032 optimizer updates**. Для A1/SFT1 LR=1e-4; AdamW FP32 masters/moments, `foreach=False`, weight_decay=.01, fresh optimizer на каждом этапе. Effective batch=64, начальный microbatch=64, max_length=4096. Activation OOM откатывает всю accumulation group и RNG, затем уменьшает microbatch. Дополнительные эпохи/seed не добавляются.
+
+Только в A1 применяется exploration: для каждого валидного токена один новый кандидат выбирается циклически среди восьми. Это предотвращает пропуск части новых экспертов при одинаковых нулевых R5 logits. Значения logits для расчёта routing weights не меняются. На SFT1, SFT2, DET и во всей оценке действует чистый общий top-k, без принудительного выбора. Отдельный auxiliary routing loss не добавляется. Это eligibility всех экспертов, а не гарантия выбора визуальных экспертов после warmup; dispatch text/visual публикуется в `routing_diagnostics.json` с явной областью «последний training forward/recompute», не как полный census эпохи.
+
+Objective A1 — caption supervised-token CE. SFT1/2 — `0.85 MM CE + 0.15 text CE` с раздельными token denominators effective batch. DET сохраняет исходный трёхпоточный `0.15 detection + 0.70 MM replay + 0.15 text` CE и integer bbox JSON0..1000. Никакой новой функции IoU-loss или изменения тестовых наборов нет.
+
+После каждого SFT-этапа — прежняя внутренняя VQA116; после DET дополнительно detection validation64. Отдельный процесс заново загружает все learned tensors с точным сравнением и воспроизводит 8 VQA генераций (в A1 — 8 caption probes). Для DET он дополнительно воспроизводит 8 detection validation генераций и оценивает полный detection test64. VQA116 остаётся внутренним single-teacher-reference macro, detection F1@IoU0.5 не является COCO AP. Это не новые официальные benchmark результаты.
+
+Код: `src/model/research_common_pool_v1.py`, `src/utils/research_common_pool_training_v1.py`. Очередь: `scripts/research_common_pool_queue_v1.py`; pinned plan: `configs/research/common_pool_plan_v1.json`. Запуски отделены в `runs/research/common_pool_v1/`, логи — `logs/research/common_pool_v1/`. Текущий статус обновляется каждые 30 секунд в `RESEARCH_COMMON_POOL_STATUS.md` и `research_results/common_pool_v1/status.json`; индивидуальный loss пишется после каждого update.
+
+На каждом этапе один model-only final checkpoint записывается **до генерации**. Best/last после оценки ссылаются на один физический файл; optimizer states не сохраняются. При ошибке оценки повторяется оценка сохранённых весов. Веса потреблённого A1/SFT1/SFT2 удаляются только после passed независимого proof преемника, совпадения SHA и проверки отсутствия открытых fd/mmap. Финальные DET-веса шести вариантов сохраняются. Остальные 18 готовых checkpoint и `exports/paper_v1` не изменяются и не удаляются во время скачивания. Минимальный резерв на диске — 32 ГиБ сверх следующего checkpoint.

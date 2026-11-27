@@ -203,7 +203,10 @@ def publish():
             lines.append(f"\nPairedCI при дополнительной GQA-нормализации: [supplement]({row['supplemental_gqa_paired']['path']}).\n")
         if 'gate_census' in row:
             lines.append(f"\nИзучаемые маски всех экспертов: [CSV/JSON]({row['gate_census']['path']}) · [heatmap]({row['gate_heatmap']['path']}). Это census параметров, не доказательство причинной специализации.\n")
-    destination=ROOT/'RESEARCH_RESULTS.md';temporary=destination.with_suffix('.tmp');temporary.write_text(''.join(lines));os.replace(temporary,destination)
+    # The retired 512-question screening must not replace the current results
+    # table after the later detection/common-pool studies have been introduced.
+    destination=ROOT/('RESEARCH_RESULTS_LEGACY_512.md' if (ROOT/'configs/research/detection_mix_plan_v1.json').exists() else 'RESEARCH_RESULTS.md')
+    temporary=destination.with_suffix('.tmp');temporary.write_text(''.join(lines));os.replace(temporary,destination)
     publish_status(result)
     print(json.dumps({'verified':result['fully_verified'],'trained':result['trained'],'matrix':18}),flush=True)
 
@@ -340,7 +343,7 @@ def publish_status(result):
     active_text=f"`{current.get('run','—')}`; состояние `{current.get('status',state['status'])}`."
     head=f'''# Текущий статус: сокращённая серия из18 запусков
 
-Обновлено {now:%d.%m.%Y %H:%M} UTC. **Обучено {result['trained']}/18; полностью проверено {result['fully_verified']}/18.** Текущая очередь: `{state['status']}`. Таблица с четырьмя512-оценками, textCE и pairedCI обновляется в [RESEARCH_RESULTS.md](RESEARCH_RESULTS.md).
+Обновлено {now:%d.%m.%Y %H:%M} UTC. **Обучено {result['trained']}/18; полностью проверено {result['fully_verified']}/18.** Текущая очередь: `{state['status']}`. Архивная таблица с четырьмя512-оценками, textCE и pairedCI: [RESEARCH_RESULTS_LEGACY_512.md](RESEARCH_RESULTS_LEGACY_512.md). Актуальные результаты следующих серий: [RESEARCH_RESULTS.md](RESEARCH_RESULTS.md).
 
 Активная стадия: {active_text} Порядок очереди: `{state.get('scheduling_phase','interleaved_training_evaluation')}`. Сначала выполняются все обучения и проверки восстановления; длинные четыре512-оценки проходят отдельным завершающим проходом. Свежие шаги/records/GPU/RAM/cache/disk каждые30с: `logs/research/budget18_resources_latest.json`. Этот Markdown — snapshot смены стадии, а не live-счётчик каждого шага.
 
